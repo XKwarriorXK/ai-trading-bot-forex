@@ -31,7 +31,6 @@ def fetch_oanda_historical(instrument: str = "EUR_USD", granularity: str = "H1",
                 "granularity": granularity,
                 "from": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "to": end_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "count": max_candles,
             }
             r = inst_ep.InstrumentsCandles(instrument=instrument, params=params)
             oanda.client.request(r)
