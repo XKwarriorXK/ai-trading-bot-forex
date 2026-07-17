@@ -83,6 +83,20 @@ class TradePipeline:
             self._log_skip(instrument, result["reason"])
             return result
 
+        # PRICE ACTION CONFIRMATION — last bar must close in trade direction
+        if len(df) >= 3:
+            last_close = df["close"].iloc[-1]
+            prev_close = df["close"].iloc[-2]
+            last_open = df["open"].iloc[-1]
+            if ensemble["signal"] == "BUY" and (last_close < last_open or last_close < prev_close):
+                result["reason"] = "Price action: bar closed bearish, skipping BUY"
+                self._log_skip(instrument, result["reason"])
+                return result
+            if ensemble["signal"] == "SELL" and (last_close > last_open or last_close > prev_close):
+                result["reason"] = "Price action: bar closed bullish, skipping SELL"
+                self._log_skip(instrument, result["reason"])
+                return result
+
         confidence = ensemble["confidence"]
 
         # Apply multi-TF modifier

@@ -46,7 +46,7 @@ class RiskManager:
         pip_value = 10 ** pip_loc
 
         if atr > 0:
-            stop_pips = max(atr / pip_value * 1.5, RISK["default_stop_loss_pips"])
+            stop_pips = max(atr / pip_value * 2.0, 15)
         else:
             stop_pips = RISK["default_stop_loss_pips"]
 
@@ -56,11 +56,7 @@ class RiskManager:
         if signal == "SELL":
             units = -units
 
-        tp_ratios = {"trending": 2.5, "volatile": 1.5, "ranging": 1.8, "transitioning": 2.0}
-        tp_ratio = tp_ratios.get(regime, 2.0)
-        if confidence > 0.30:
-            tp_ratio += 0.5
-        tp_pips = stop_pips * tp_ratio
+        tp_pips = stop_pips * 2.0
 
         if price > 0:
             if signal == "BUY":
