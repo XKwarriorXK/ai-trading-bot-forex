@@ -1,11 +1,23 @@
 """
 Historical data loader — fetches forex data from OANDA for backtesting.
+Chunks requests to stay under OANDA's 500-candle API limit.
 """
 import logging
 import pandas as pd
+import oandapyV20.endpoints.instruments as inst_ep
 from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
+
+CHUNK_DAYS = {
+    "M1": 0.3,
+    "M5": 1.5,
+    "M15": 5,
+    "M30": 10,
+    "H1": 20,
+    "H4": 80,
+    "D": 400,
+}
 
 
 def fetch_oanda_historical(instrument: str = "EUR_USD", granularity: str = "H1",
@@ -18,15 +30,14 @@ def fetch_oanda_historical(instrument: str = "EUR_USD", granularity: str = "H1",
             return pd.DataFrame()
 
         all_data = []
-        max_candles = 5000
+        chunk_size = CHUNK_DAYS.get(granularity, 20)
         remaining_days = days
         end_time = datetime.now(timezone.utc)
 
         while remaining_days > 0:
-            chunk_days = min(remaining_days, 180)
-            start_time = end_time - timedelta(days=chunk_days)
+            fetch_days = min(remaining_days, chunk_size)
+            start_time = end_time - timedelta(days=fetch_days)
 
-            import oandapyV20.endpoints.instruments as inst_ep
             params = {
                 "granularity": granularity,
                 "from": start_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -48,7 +59,7 @@ def fetch_oanda_historical(instrument: str = "EUR_USD", granularity: str = "H1",
                         "volume": int(c["volume"]),
                     })
 
-            remaining_days -= chunk_days
+            remaining_days -= fetch_days
             end_time = start_time
 
         if not all_data:

@@ -26,6 +26,15 @@ class SessionFilter:
     def check(self, instrument: str) -> dict:
         now = datetime.now(timezone.utc)
         hour = now.hour
+        weekday = now.weekday()
+
+        if weekday == 5 or (weekday == 4 and hour >= 21) or (weekday == 6 and hour < 21):
+            return {
+                "tradeable": False,
+                "sessions": [],
+                "reason": "Forex market closed (weekend)",
+            }
+
         active_sessions = self._get_active_sessions(hour)
         preferred = self.INSTRUMENT_SESSIONS.get(instrument, ["london", "new_york"])
         in_preferred = any(s in active_sessions for s in preferred)

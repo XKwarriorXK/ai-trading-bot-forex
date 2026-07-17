@@ -127,11 +127,11 @@ class OandaClient:
                     "timeInForce": "FOK",
                 }
             }
-            if stop_loss_price:
+            if stop_loss_price is not None:
                 order_body["order"]["stopLossOnFill"] = {
                     "price": f"{stop_loss_price:.5f}"
                 }
-            if take_profit_price:
+            if take_profit_price is not None:
                 order_body["order"]["takeProfitOnFill"] = {
                     "price": f"{take_profit_price:.5f}"
                 }

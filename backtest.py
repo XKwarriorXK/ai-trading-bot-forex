@@ -32,9 +32,6 @@ def build_pipeline(args):
     from agents.technical import TechnicalAgent
     from agents.debate import DebateAgent
     from agents.risk_manager import RiskManager
-    from agents.session_filter import SessionFilter
-    from agents.spread_filter import SpreadFilter
-    from agents.news_agent import NewsAgent
     from agents.market_structure import MarketStructureAgent
     from agents.pipeline import TradePipeline
     from strategy.strategy_selector import StrategySelector
@@ -43,9 +40,6 @@ def build_pipeline(args):
     technical = TechnicalAgent()
     strategy_selector = StrategySelector()
     risk = RiskManager(account_balance=args.balance)
-    session_filter = SessionFilter()
-    spread_filter = SpreadFilter()
-    news_agent = NewsAgent()
     structure = MarketStructureAgent()
     journal = TradeJournal(db_path="data/backtest_trades.db")
 
@@ -61,9 +55,9 @@ def build_pipeline(args):
         strategy_selector=strategy_selector,
         debate=debate,
         risk=risk,
-        session_filter=session_filter,
-        spread_filter=spread_filter,
-        news_agent=news_agent,
+        session_filter=None,
+        spread_filter=None,
+        news_agent=None,
         market_structure=structure,
         multi_tf=None,
         journal=journal,

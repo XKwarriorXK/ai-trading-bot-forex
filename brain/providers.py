@@ -62,7 +62,7 @@ class AIProvider:
     def __init__(self):
         self.clients = {}
         self.models = {}
-        self.circuit_breaker = CircuitBreaker()
+        self.circuit_breakers = {}
         self.token_budget = TokenBudget()
         self._init_groq()
         self._init_cerebras()
@@ -74,6 +74,7 @@ class AIProvider:
                 from groq import Groq
                 self.clients["groq"] = Groq(api_key=config["api_key"])
                 self.models["groq"] = config["models"]
+                self.circuit_breakers["groq"] = CircuitBreaker()
                 logger.info("Groq provider initialized")
             except ImportError:
                 logger.warning("groq package not installed")
@@ -88,6 +89,7 @@ class AIProvider:
                     base_url=config["base_url"],
                 )
                 self.models["cerebras"] = config["models"]
+                self.circuit_breakers["cerebras"] = CircuitBreaker()
                 logger.info("Cerebras provider initialized")
             except ImportError:
                 logger.warning("openai package not installed")
@@ -98,8 +100,9 @@ class AIProvider:
         client = self.clients.get(provider_name)
         if not client:
             return {"success": False, "error": f"Provider {provider_name} not configured", "content": ""}
-        if not self.circuit_breaker.can_proceed():
-            return {"success": False, "error": "Circuit breaker open", "content": ""}
+        cb = self.circuit_breakers.get(provider_name)
+        if cb and not cb.can_proceed():
+            return {"success": False, "error": f"Circuit breaker open for {provider_name}", "content": ""}
         if not self.token_budget.can_spend(priority):
             return {"success": False, "error": "Token budget exceeded", "content": ""}
 
@@ -117,7 +120,8 @@ class AIProvider:
             content = response.choices[0].message.content
             tokens_used = response.usage.total_tokens if response.usage else 0
             self.token_budget.record_usage(tokens_used)
-            self.circuit_breaker.record_success()
+            if cb:
+                cb.record_success()
             return {"success": True, "content": content, "tokens": tokens_used,
                     "model": model, "provider": provider_name}
         except Exception as e:
@@ -133,13 +137,16 @@ class AIProvider:
                     content = response.choices[0].message.content
                     tokens_used = response.usage.total_tokens if response.usage else 0
                     self.token_budget.record_usage(tokens_used)
-                    self.circuit_breaker.record_success()
+                    if cb:
+                        cb.record_success()
                     return {"success": True, "content": content, "tokens": tokens_used,
                             "model": model, "provider": provider_name}
                 except Exception:
-                    pass
+                    if cb:
+                        cb.record_failure()
             else:
-                self.circuit_breaker.record_failure()
+                if cb:
+                    cb.record_failure()
             logger.error(f"AI call failed ({provider_name}:{model}): {e}")
             return {"success": False, "error": error_str, "content": ""}
 

@@ -110,8 +110,9 @@ class TradeJournal:
             session, trade_id,
         ))
         conn.commit()
+        last_id = c.lastrowid
         conn.close()
-        return c.lastrowid
+        return last_id
 
     def log_trade_close(self, trade_db_id: int, exit_price: float, pnl: float,
                         pnl_pips: float, duration_minutes: int, exit_reason: str):
@@ -138,7 +139,7 @@ class TradeJournal:
         if row:
             trades = row[1] + 1
             wins = row[2] + (1 if pnl > 0 else 0)
-            losses = row[3] + (1 if pnl <= 0 else 0)
+            losses = row[3] + (1 if pnl < 0 else 0)
             total_pnl = row[4] + pnl
             best = max(row[6], pnl)
             worst = min(row[7], pnl)
@@ -152,7 +153,7 @@ class TradeJournal:
                 INSERT INTO daily_stats (date, trades_taken, wins, losses, pnl,
                                         best_trade, worst_trade)
                 VALUES (?, 1, ?, ?, ?, ?, ?)
-            """, (today, 1 if pnl > 0 else 0, 1 if pnl <= 0 else 0,
+            """, (today, 1 if pnl > 0 else 0, 1 if pnl < 0 else 0,
                   pnl, pnl, pnl))
 
         conn.commit()
@@ -172,9 +173,9 @@ class TradeJournal:
         if not trades:
             return {"total_trades": 0, "message": "No completed trades"}
 
-        pnls = [t[10] for t in trades if t[10] is not None]  # pnl column
+        pnls = [t[9] for t in trades if t[9] is not None]
         wins = [p for p in pnls if p > 0]
-        losses = [p for p in pnls if p <= 0]
+        losses = [p for p in pnls if p < 0]
 
         return {
             "total_trades": len(pnls),

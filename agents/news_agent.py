@@ -1,6 +1,7 @@
 """
 News/Economic Calendar Agent — reduces risk around high-impact events.
-Uses approximate calendar for major events (FOMC, NFP, CPI, ECB, BOE, BOJ).
+Uses calendar rules: checks month, week-of-month, and day to avoid
+false positives on events that only happen monthly.
 """
 import logging
 from datetime import datetime, timezone
@@ -12,36 +13,29 @@ HIGH_IMPACT_EVENTS = {
         "currencies": ["USD"],
         "typical_days": ["wednesday"],
         "months": [1, 3, 5, 6, 7, 9, 11, 12],
-        "risk_hours_before": 4,
-        "risk_hours_after": 2,
+        "week_of_month": [3, 4],
     },
     "NFP": {
         "currencies": ["USD"],
         "typical_days": ["friday"],
-        "week_of_month": 1,
-        "risk_hours_before": 2,
-        "risk_hours_after": 1,
+        "week_of_month": [1],
     },
     "CPI": {
         "currencies": ["USD"],
         "typical_days": ["tuesday", "wednesday", "thursday"],
-        "week_of_month": 2,
-        "risk_hours_before": 2,
-        "risk_hours_after": 1,
+        "week_of_month": [2],
     },
     "ECB": {
         "currencies": ["EUR"],
         "typical_days": ["thursday"],
-        "frequency": 6,
-        "risk_hours_before": 3,
-        "risk_hours_after": 2,
+        "months": [1, 3, 4, 6, 7, 9, 10, 12],
+        "week_of_month": [2, 3],
     },
     "BOE": {
         "currencies": ["GBP"],
         "typical_days": ["thursday"],
-        "frequency": 8,
-        "risk_hours_before": 3,
-        "risk_hours_after": 2,
+        "months": [2, 3, 5, 6, 8, 9, 11, 12],
+        "week_of_month": [1, 2],
     },
 }
 
@@ -59,24 +53,40 @@ CURRENCY_MAP = {
 }
 
 
+def _week_of_month(dt):
+    first_day = dt.replace(day=1)
+    adjusted = dt.day + first_day.weekday()
+    return (adjusted - 1) // 7 + 1
+
+
 class NewsAgent:
     def check_risk(self, instrument: str) -> dict:
         now = datetime.now(timezone.utc)
         currencies = CURRENCY_MAP.get(instrument, [])
         risks = []
 
+        day_name = now.strftime("%A").lower()
+        month = now.month
+        week = _week_of_month(now)
+
         for event_name, event in HIGH_IMPACT_EVENTS.items():
-            affected_currencies = event["currencies"]
-            if not any(c in currencies for c in affected_currencies):
+            if not any(c in currencies for c in event["currencies"]):
                 continue
 
-            day_name = now.strftime("%A").lower()
-            if day_name in event.get("typical_days", []):
-                risks.append({
-                    "event": event_name,
-                    "risk_level": "high",
-                    "reason": f"{event_name} may be scheduled today",
-                })
+            if day_name not in event.get("typical_days", []):
+                continue
+
+            if "months" in event and month not in event["months"]:
+                continue
+
+            if "week_of_month" in event and week not in event["week_of_month"]:
+                continue
+
+            risks.append({
+                "event": event_name,
+                "risk_level": "high",
+                "reason": f"{event_name} likely scheduled today (week {week})",
+            })
 
         if not risks:
             return {
@@ -86,11 +96,10 @@ class NewsAgent:
                 "confidence_modifier": 0,
             }
 
-        high_risk = any(r["risk_level"] == "high" for r in risks)
         return {
-            "risk_level": "high" if high_risk else "medium",
+            "risk_level": "high",
             "tradeable": True,
             "events": risks,
-            "confidence_modifier": -0.10 if high_risk else -0.05,
-            "size_reduction_pct": 50 if high_risk else 25,
+            "confidence_modifier": -0.10,
+            "size_reduction_pct": 50,
         }

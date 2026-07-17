@@ -73,10 +73,10 @@ class TradePipeline:
                 logger.warning(f"Multi-TF failed for {instrument}: {e}")
 
         # 5b. 200 EMA TREND FILTER — only trade with the major trend
+        import ta as _ta
         ema_200 = tech["indicators"].get("ema_200")
         if ema_200 is None and len(df) >= 200:
-            import ta
-            ema_200 = ta.trend.ema_indicator(df["close"], window=200).iloc[-1]
+            ema_200 = _ta.trend.ema_indicator(df["close"], window=200).iloc[-1]
         if ema_200:
             price_now = float(df["close"].iloc[-1])
             result["ema_200"] = ema_200
@@ -84,7 +84,6 @@ class TradePipeline:
         # 5c. ATR VOLATILITY FILTER — skip dead markets
         atr_val = tech["indicators"].get("atr", 0)
         if atr_val > 0 and len(df) >= 50:
-            import ta as _ta
             atr_series = _ta.volatility.average_true_range(
                 df["high"], df["low"], df["close"], window=14)
             avg_atr = atr_series.rolling(50).mean().iloc[-1]
