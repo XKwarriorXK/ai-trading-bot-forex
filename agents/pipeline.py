@@ -84,10 +84,6 @@ class TradePipeline:
                 daily_trend = "bullish"
             elif ema_50.iloc[-1] < ema_100.iloc[-1] and adx.iloc[-1] > 20:
                 daily_trend = "bearish"
-            if daily_trend == "bullish" and adx.iloc[-1] > 25:
-                regime = "trending"
-            elif daily_trend == "bearish" and adx.iloc[-1] > 25:
-                regime = "trending"
             result["daily_trend"] = daily_trend
 
         # 5b. 200 EMA TREND FILTER — only trade with the major trend

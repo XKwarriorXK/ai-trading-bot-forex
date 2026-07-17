@@ -57,7 +57,7 @@ class RiskManager:
             units = -units
 
         if regime == "trending":
-            tp_pips = stop_pips * 3.0
+            tp_pips = stop_pips * 2.5
         else:
             tp_pips = stop_pips * 2.0
 
