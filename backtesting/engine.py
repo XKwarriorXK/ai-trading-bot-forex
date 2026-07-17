@@ -113,46 +113,16 @@ class BacktestEngine:
         high = float(bar["high"])
         low = float(bar["low"])
 
-        sl_distance = abs(pos["entry_price"] - pos.get("original_sl", pos["stop_loss"]))
-
         if pos["direction"] == "BUY":
-            pos["highest"] = max(pos["highest"], high)
-            profit_distance = pos["highest"] - pos["entry_price"]
-
-            # Stage 1: at 1R profit, move stop to break-even
-            if profit_distance >= sl_distance and pos["stop_loss"] < pos["entry_price"]:
-                pos["stop_loss"] = pos["entry_price"] + self.pip_value
-
-            # Stage 2: at 1.5R profit, start trailing
-            if profit_distance >= sl_distance * 1.5:
-                trail_stop = pos["highest"] - sl_distance * 0.75
-                if trail_stop > pos["stop_loss"]:
-                    pos["stop_loss"] = trail_stop
-
-            if low <= pos["stop_loss"]:
-                exit_price = pos["stop_loss"]
-                reason = "trailing_stop" if pos["stop_loss"] > pos["entry_price"] else "stop_loss"
-                self._close(exit_price, bar_idx, reason)
-            elif high >= pos["take_profit"]:
+            if high >= pos["take_profit"]:
                 self._close(pos["take_profit"], bar_idx, "take_profit")
+            elif low <= pos["stop_loss"]:
+                self._close(pos["stop_loss"], bar_idx, "stop_loss")
         else:
-            pos["lowest"] = min(pos["lowest"], low)
-            profit_distance = pos["entry_price"] - pos["lowest"]
-
-            if profit_distance >= sl_distance and pos["stop_loss"] > pos["entry_price"]:
-                pos["stop_loss"] = pos["entry_price"] - self.pip_value
-
-            if profit_distance >= sl_distance * 1.5:
-                trail_stop = pos["lowest"] + sl_distance * 0.75
-                if trail_stop < pos["stop_loss"]:
-                    pos["stop_loss"] = trail_stop
-
-            if high >= pos["stop_loss"]:
-                exit_price = pos["stop_loss"]
-                reason = "trailing_stop" if pos["stop_loss"] < pos["entry_price"] else "stop_loss"
-                self._close(exit_price, bar_idx, reason)
-            elif low <= pos["take_profit"]:
+            if low <= pos["take_profit"]:
                 self._close(pos["take_profit"], bar_idx, "take_profit")
+            elif high >= pos["stop_loss"]:
+                self._close(pos["stop_loss"], bar_idx, "stop_loss")
 
     def _close(self, exit_price, bar_idx, reason):
         pos = self.current_position
