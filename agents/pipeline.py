@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 class TradePipeline:
     def __init__(self, technical, strategy_selector, debate, risk,
                  session_filter, spread_filter, news_agent,
-                 market_structure, multi_tf, journal, router=None):
+                 market_structure, multi_tf, journal, router=None,
+                 entry_sniper=None):
         self.technical = technical
         self.strategy_selector = strategy_selector
         self.debate = debate
@@ -23,6 +24,7 @@ class TradePipeline:
         self.multi_tf = multi_tf
         self.journal = journal
         self.router = router
+        self.entry_sniper = entry_sniper
 
     def evaluate(self, df, instrument: str, price_data: dict = None,
                  mode: str = "full") -> dict:
@@ -161,6 +163,23 @@ class TradePipeline:
             result["reason"] = f"Risk: {risk_check['reason']}"
             self._log_skip(instrument, result["reason"])
             return result
+
+        # 10. ENTRY SNIPER — drop to M15 for precise entry (live only)
+        if self.entry_sniper:
+            sniper = self.entry_sniper.snipe_entry(
+                instrument, ensemble["signal"],
+                h1_price=price, h1_atr=atr,
+            )
+            result["sniper"] = sniper
+            if not sniper["confirmed"]:
+                result["reason"] = f"Sniper: {sniper.get('reject_reason', 'M15 not confirmed')}"
+                self._log_skip(instrument, result["reason"])
+                return result
+            logger.info(
+                f"SNIPER | {instrument} | {ensemble['signal']} confirmed | "
+                f"M15 score: {sniper['score']}/{sniper['max_score']} | "
+                f"{', '.join(sniper.get('reasons', []))}"
+            )
 
         # News size reduction
         if news_risk.get("size_reduction_pct"):

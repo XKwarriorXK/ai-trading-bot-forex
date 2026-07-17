@@ -38,6 +38,7 @@ def initialize(mode: str = "full"):
     from agents.news_agent import NewsAgent
     from agents.market_structure import MarketStructureAgent
     from agents.multi_timeframe import MultiTimeframeAgent
+    from agents.entry_sniper import EntrySniper
     from agents.pipeline import TradePipeline
     from strategy.strategy_selector import StrategySelector
     from execution.oanda_client import OandaClient
@@ -76,6 +77,10 @@ def initialize(mode: str = "full"):
     multi_tf = MultiTimeframeAgent(oanda)
     logger.info("[MTF] Multi-timeframe analysis online")
 
+    # Entry sniper — drops to M15 for precise entries
+    entry_sniper = EntrySniper(oanda)
+    logger.info("[Sniper] M15 entry refinement online")
+
     # AI Brain
     debate = None
     router = None
@@ -104,6 +109,7 @@ def initialize(mode: str = "full"):
         multi_tf=multi_tf,
         journal=journal,
         router=router,
+        entry_sniper=entry_sniper,
     )
     logger.info("[Pipeline] Full analysis pipeline assembled")
 
