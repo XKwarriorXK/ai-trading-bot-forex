@@ -100,6 +100,7 @@ class BacktestEngine:
             "entry_price": entry_price,
             "units": units,
             "stop_loss": sl_price,
+            "original_sl": sl_price,
             "take_profit": tp_price,
             "entry_bar": bar_idx,
             "confidence": signal.get("confidence", 0),
@@ -112,15 +113,22 @@ class BacktestEngine:
         high = float(bar["high"])
         low = float(bar["low"])
 
-        sl_distance = abs(pos["entry_price"] - pos["stop_loss"])
+        sl_distance = abs(pos["entry_price"] - pos.get("original_sl", pos["stop_loss"]))
 
         if pos["direction"] == "BUY":
             pos["highest"] = max(pos["highest"], high)
-            profit_pips = (pos["highest"] - pos["entry_price"]) / self.pip_value
-            if profit_pips >= 20:
-                trail_stop = pos["highest"] - sl_distance * 0.5
+            profit_distance = pos["highest"] - pos["entry_price"]
+
+            # Stage 1: at 1R profit, move stop to break-even
+            if profit_distance >= sl_distance and pos["stop_loss"] < pos["entry_price"]:
+                pos["stop_loss"] = pos["entry_price"] + self.pip_value
+
+            # Stage 2: at 1.5R profit, start trailing
+            if profit_distance >= sl_distance * 1.5:
+                trail_stop = pos["highest"] - sl_distance * 0.75
                 if trail_stop > pos["stop_loss"]:
                     pos["stop_loss"] = trail_stop
+
             if low <= pos["stop_loss"]:
                 exit_price = pos["stop_loss"]
                 reason = "trailing_stop" if pos["stop_loss"] > pos["entry_price"] else "stop_loss"
@@ -129,11 +137,16 @@ class BacktestEngine:
                 self._close(pos["take_profit"], bar_idx, "take_profit")
         else:
             pos["lowest"] = min(pos["lowest"], low)
-            profit_pips = (pos["entry_price"] - pos["lowest"]) / self.pip_value
-            if profit_pips >= 20:
-                trail_stop = pos["lowest"] + sl_distance * 0.5
+            profit_distance = pos["entry_price"] - pos["lowest"]
+
+            if profit_distance >= sl_distance and pos["stop_loss"] > pos["entry_price"]:
+                pos["stop_loss"] = pos["entry_price"] - self.pip_value
+
+            if profit_distance >= sl_distance * 1.5:
+                trail_stop = pos["lowest"] + sl_distance * 0.75
                 if trail_stop < pos["stop_loss"]:
                     pos["stop_loss"] = trail_stop
+
             if high >= pos["stop_loss"]:
                 exit_price = pos["stop_loss"]
                 reason = "trailing_stop" if pos["stop_loss"] < pos["entry_price"] else "stop_loss"

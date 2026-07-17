@@ -72,6 +72,27 @@ class TradePipeline:
             except Exception as e:
                 logger.warning(f"Multi-TF failed for {instrument}: {e}")
 
+        # 5b. 200 EMA TREND FILTER — only trade with the major trend
+        ema_200 = tech["indicators"].get("ema_200")
+        if ema_200 is None and len(df) >= 200:
+            import ta
+            ema_200 = ta.trend.ema_indicator(df["close"], window=200).iloc[-1]
+        if ema_200:
+            price_now = float(df["close"].iloc[-1])
+            result["ema_200"] = ema_200
+
+        # 5c. ATR VOLATILITY FILTER — skip dead markets
+        atr_val = tech["indicators"].get("atr", 0)
+        if atr_val > 0 and len(df) >= 50:
+            import ta as _ta
+            atr_series = _ta.volatility.average_true_range(
+                df["high"], df["low"], df["close"], window=14)
+            avg_atr = atr_series.rolling(50).mean().iloc[-1]
+            if atr_val < avg_atr * 0.7:
+                result["reason"] = "ATR below 70% of 50-bar avg — dead market"
+                self._log_skip(instrument, result["reason"])
+                return result
+
         # 6. STRATEGY ENSEMBLE — multiple strategies vote
         if self.strategy_selector:
             ensemble = self.strategy_selector.evaluate(df, regime)
@@ -84,6 +105,17 @@ class TradePipeline:
             result["reason"] = ensemble.get("reason", "No strategy agreement")
             self._log_skip(instrument, result["reason"])
             return result
+
+        # 200 EMA DIRECTION CHECK — trade must align with major trend
+        if ema_200:
+            if ensemble["signal"] == "BUY" and price_now < ema_200:
+                result["reason"] = "BUY rejected: price below 200 EMA (bearish trend)"
+                self._log_skip(instrument, result["reason"])
+                return result
+            if ensemble["signal"] == "SELL" and price_now > ema_200:
+                result["reason"] = "SELL rejected: price above 200 EMA (bullish trend)"
+                self._log_skip(instrument, result["reason"])
+                return result
 
         # PRICE ACTION CONFIRMATION — last bar must close in trade direction
         if len(df) >= 3:

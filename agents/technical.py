@@ -128,6 +128,7 @@ class TechnicalAgent:
                     "bb_width": round(bb_width.iloc[-1], 6),
                     "stoch_k": round(stoch_k.iloc[-1], 2),
                     "atr": round(atr.iloc[-1], 5),
+                    "ema_200": round(ema_200.iloc[-1], 5) if ema_200 is not None else None,
                 },
             }
         except Exception as e:

@@ -69,7 +69,7 @@ class TrendStrategy:
             score -= 0.10
             reasons.append("Price near EMA21 pullback")
 
-        if abs(score) < 0.10:
+        if abs(score) < 0.25:
             return {"signal": "SKIP", "confidence": 0, "reason": "Weak trend signal"}
 
         signal = "BUY" if score > 0 else "SELL"
@@ -134,7 +134,7 @@ class MeanReversionStrategy:
             score -= 0.15
             reasons.append("Stochastic overbought")
 
-        if abs(score) < 0.15:
+        if abs(score) < 0.30:
             return {"signal": "SKIP", "confidence": 0, "reason": "Weak mean reversion signal"}
 
         signal = "BUY" if score > 0 else "SELL"
@@ -214,7 +214,7 @@ class BreakoutStrategy:
             score *= 1.2
             reasons.append("ATR expanding")
 
-        if abs(score) < 0.15:
+        if abs(score) < 0.25:
             return {"signal": "SKIP", "confidence": 0, "reason": "No breakout detected"}
 
         signal = "BUY" if score > 0 else "SELL"
@@ -271,7 +271,7 @@ class MomentumStrategy:
             score *= 1.2
             reasons.append(f"Directional strength ADX={adx.iloc[-1]:.0f}")
 
-        if abs(score) < 0.15:
+        if abs(score) < 0.25:
             return {"signal": "SKIP", "confidence": 0, "reason": "Weak momentum"}
 
         signal = "BUY" if score > 0 else "SELL"

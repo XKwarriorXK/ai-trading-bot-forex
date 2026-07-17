@@ -70,16 +70,11 @@ TRADING = {
 }
 
 WATCHLIST = [
-    "EUR_USD",
+    "GBP_JPY",
+    "EUR_JPY",
     "GBP_USD",
     "USD_JPY",
-    "AUD_USD",
-    "USD_CAD",
-    "EUR_GBP",
-    "EUR_JPY",
-    "GBP_JPY",
-    "NZD_USD",
-    "USD_CHF",
+    "EUR_USD",
 ]
 
 INSTRUMENTS = {
