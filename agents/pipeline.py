@@ -138,6 +138,24 @@ class TradePipeline:
             self._log_skip(instrument, result["reason"])
             return result
 
+        # PULLBACK FILTER — only enter on pullbacks to EMA, not extended moves
+        if len(df) >= 50:
+            ema_21 = _ta.trend.ema_indicator(df["close"], window=21).iloc[-1]
+            ema_50_val = _ta.trend.ema_indicator(df["close"], window=50).iloc[-1]
+            price_now_pb = float(df["close"].iloc[-1])
+            dist_to_ema21 = abs(price_now_pb - ema_21) / price_now_pb
+
+            if ensemble["signal"] == "BUY":
+                if price_now_pb > ema_21 and dist_to_ema21 > 0.004:
+                    result["reason"] = f"No pullback: price {dist_to_ema21:.1%} above EMA21"
+                    self._log_skip(instrument, result["reason"])
+                    return result
+            else:
+                if price_now_pb < ema_21 and dist_to_ema21 > 0.004:
+                    result["reason"] = f"No pullback: price {dist_to_ema21:.1%} below EMA21"
+                    self._log_skip(instrument, result["reason"])
+                    return result
+
         # PRICE ACTION CONFIRMATION — last bar must close in trade direction
         if len(df) >= 3:
             last_close = df["close"].iloc[-1]
@@ -205,8 +223,8 @@ class TradePipeline:
         # Clamp confidence
         confidence = max(0, min(confidence, 0.95))
 
-        if confidence < 0.35:
-            result["reason"] = f"Confidence {confidence:.0%} below 35% minimum"
+        if confidence < 0.40:
+            result["reason"] = f"Confidence {confidence:.0%} below 40% minimum"
             self._log_skip(instrument, result["reason"])
             return result
 
