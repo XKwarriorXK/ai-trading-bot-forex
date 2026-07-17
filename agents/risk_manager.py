@@ -56,7 +56,10 @@ class RiskManager:
         if signal == "SELL":
             units = -units
 
-        tp_pips = stop_pips * 2.0
+        if regime == "trending":
+            tp_pips = stop_pips * 3.0
+        else:
+            tp_pips = stop_pips * 2.0
 
         if price > 0:
             if signal == "BUY":

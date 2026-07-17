@@ -72,6 +72,24 @@ class TradePipeline:
             except Exception as e:
                 logger.warning(f"Multi-TF failed for {instrument}: {e}")
 
+        # 5a. DAILY TREND FROM H1 DATA — works in backtests without live API
+        daily_trend = "neutral"
+        if not mtf and len(df) >= 200:
+            import ta as _ta_daily
+            close = df["close"]
+            ema_50 = _ta_daily.trend.ema_indicator(close, window=50)
+            ema_100 = _ta_daily.trend.ema_indicator(close, window=100)
+            adx = _ta_daily.trend.adx(df["high"], df["low"], close, window=14)
+            if ema_50.iloc[-1] > ema_100.iloc[-1] and adx.iloc[-1] > 20:
+                daily_trend = "bullish"
+            elif ema_50.iloc[-1] < ema_100.iloc[-1] and adx.iloc[-1] > 20:
+                daily_trend = "bearish"
+            if daily_trend == "bullish" and adx.iloc[-1] > 25:
+                regime = "trending"
+            elif daily_trend == "bearish" and adx.iloc[-1] > 25:
+                regime = "trending"
+            result["daily_trend"] = daily_trend
+
         # 5b. 200 EMA TREND FILTER — only trade with the major trend
         import ta as _ta
         ema_200 = tech["indicators"].get("ema_200")
@@ -105,7 +123,7 @@ class TradePipeline:
             self._log_skip(instrument, result["reason"])
             return result
 
-        # 200 EMA DIRECTION CHECK — trade must align with major trend
+        # 200 EMA + DAILY TREND DIRECTION CHECK
         if ema_200:
             if ensemble["signal"] == "BUY" and price_now < ema_200:
                 result["reason"] = "BUY rejected: price below 200 EMA (bearish trend)"
@@ -115,6 +133,14 @@ class TradePipeline:
                 result["reason"] = "SELL rejected: price above 200 EMA (bullish trend)"
                 self._log_skip(instrument, result["reason"])
                 return result
+        if daily_trend == "bullish" and ensemble["signal"] == "SELL":
+            result["reason"] = "SELL rejected: daily trend is bullish"
+            self._log_skip(instrument, result["reason"])
+            return result
+        if daily_trend == "bearish" and ensemble["signal"] == "BUY":
+            result["reason"] = "BUY rejected: daily trend is bearish"
+            self._log_skip(instrument, result["reason"])
+            return result
 
         # PRICE ACTION CONFIRMATION — last bar must close in trade direction
         if len(df) >= 3:
@@ -182,6 +208,11 @@ class TradePipeline:
 
         # Clamp confidence
         confidence = max(0, min(confidence, 0.95))
+
+        if confidence < 0.35:
+            result["reason"] = f"Confidence {confidence:.0%} below 35% minimum"
+            self._log_skip(instrument, result["reason"])
+            return result
 
         # 9. RISK CHECK — position sizing + limits
         price = price_data.get("bid", 0) if price_data else 0
