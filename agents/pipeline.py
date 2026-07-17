@@ -72,19 +72,18 @@ class TradePipeline:
             except Exception as e:
                 logger.warning(f"Multi-TF failed for {instrument}: {e}")
 
-        # 5a. DAILY TREND FROM H1 DATA — works in backtests without live API
-        daily_trend = "neutral"
-        if not mtf and len(df) >= 200:
-            import ta as _ta_daily
+        # 5a. MA TREND DIRECTION — MA5 vs MA50 for market direction
+        ma_trend = "neutral"
+        if len(df) >= 50:
+            import ta as _ta_ma
             close = df["close"]
-            ema_50 = _ta_daily.trend.ema_indicator(close, window=50)
-            ema_100 = _ta_daily.trend.ema_indicator(close, window=100)
-            adx = _ta_daily.trend.adx(df["high"], df["low"], close, window=14)
-            if ema_50.iloc[-1] > ema_100.iloc[-1] and adx.iloc[-1] > 20:
-                daily_trend = "bullish"
-            elif ema_50.iloc[-1] < ema_100.iloc[-1] and adx.iloc[-1] > 20:
-                daily_trend = "bearish"
-            result["daily_trend"] = daily_trend
+            ma_5 = _ta_ma.trend.ema_indicator(close, window=5)
+            ma_50 = _ta_ma.trend.ema_indicator(close, window=50)
+            if ma_5.iloc[-1] > ma_50.iloc[-1]:
+                ma_trend = "bullish"
+            elif ma_5.iloc[-1] < ma_50.iloc[-1]:
+                ma_trend = "bearish"
+            result["ma_trend"] = ma_trend
 
         # 5b. 200 EMA TREND FILTER — only trade with the major trend
         import ta as _ta
@@ -119,7 +118,7 @@ class TradePipeline:
             self._log_skip(instrument, result["reason"])
             return result
 
-        # 200 EMA + DAILY TREND DIRECTION CHECK
+        # 200 EMA + MA TREND DIRECTION CHECK
         if ema_200:
             if ensemble["signal"] == "BUY" and price_now < ema_200:
                 result["reason"] = "BUY rejected: price below 200 EMA (bearish trend)"
@@ -129,12 +128,12 @@ class TradePipeline:
                 result["reason"] = "SELL rejected: price above 200 EMA (bullish trend)"
                 self._log_skip(instrument, result["reason"])
                 return result
-        if daily_trend == "bullish" and ensemble["signal"] == "SELL":
-            result["reason"] = "SELL rejected: daily trend is bullish"
+        if ma_trend == "bullish" and ensemble["signal"] == "SELL":
+            result["reason"] = "SELL rejected: MA5 above MA50 (bullish market)"
             self._log_skip(instrument, result["reason"])
             return result
-        if daily_trend == "bearish" and ensemble["signal"] == "BUY":
-            result["reason"] = "BUY rejected: daily trend is bearish"
+        if ma_trend == "bearish" and ensemble["signal"] == "BUY":
+            result["reason"] = "BUY rejected: MA5 below MA50 (bearish market)"
             self._log_skip(instrument, result["reason"])
             return result
 
@@ -156,17 +155,25 @@ class TradePipeline:
                     self._log_skip(instrument, result["reason"])
                     return result
 
-        # PRICE ACTION CONFIRMATION — last bar must close in trade direction
-        if len(df) >= 3:
-            last_close = df["close"].iloc[-1]
-            prev_close = df["close"].iloc[-2]
-            last_open = df["open"].iloc[-1]
-            if ensemble["signal"] == "BUY" and (last_close < last_open or last_close < prev_close):
-                result["reason"] = "Price action: bar closed bearish, skipping BUY"
-                self._log_skip(instrument, result["reason"])
-                return result
-            if ensemble["signal"] == "SELL" and (last_close > last_open or last_close > prev_close):
-                result["reason"] = "Price action: bar closed bullish, skipping SELL"
+        # MA2/MA10 CROSSOVER — entry confirmation (momentum shift)
+        if len(df) >= 12:
+            ma_2 = _ta.trend.ema_indicator(df["close"], window=2)
+            ma_10 = _ta.trend.ema_indicator(df["close"], window=10)
+            crossed = False
+            for lookback in range(1, 6):
+                idx = -lookback
+                prev = idx - 1
+                if abs(prev) <= len(ma_2):
+                    if ensemble["signal"] == "BUY":
+                        if ma_2.iloc[idx] > ma_10.iloc[idx] and ma_2.iloc[prev] <= ma_10.iloc[prev]:
+                            crossed = True
+                            break
+                    else:
+                        if ma_2.iloc[idx] < ma_10.iloc[idx] and ma_2.iloc[prev] >= ma_10.iloc[prev]:
+                            crossed = True
+                            break
+            if not crossed:
+                result["reason"] = "No MA2/MA10 crossover — entry not confirmed"
                 self._log_skip(instrument, result["reason"])
                 return result
 

@@ -38,6 +38,10 @@ class BacktestEngine:
 
         self.equity_curve = [{"bar": 0, "equity": self.balance}]
 
+        import ta
+        self.ma5 = ta.trend.ema_indicator(data["close"], window=5)
+        self.ma10 = ta.trend.ema_indicator(data["close"], window=10)
+
         last_date = None
         for i in range(lookback, len(data)):
             window = data.iloc[max(0, i - lookback):i + 1].copy()
@@ -113,16 +117,32 @@ class BacktestEngine:
         high = float(bar["high"])
         low = float(bar["low"])
 
+        # SL check first — always protect capital
         if pos["direction"] == "BUY":
-            if high >= pos["take_profit"]:
-                self._close(pos["take_profit"], bar_idx, "take_profit")
-            elif low <= pos["stop_loss"]:
+            if low <= pos["stop_loss"]:
                 self._close(pos["stop_loss"], bar_idx, "stop_loss")
+                return
         else:
-            if low <= pos["take_profit"]:
-                self._close(pos["take_profit"], bar_idx, "take_profit")
-            elif high >= pos["stop_loss"]:
+            if high >= pos["stop_loss"]:
                 self._close(pos["stop_loss"], bar_idx, "stop_loss")
+                return
+
+        # MA EXIT — when MA10 crosses MA5, momentum has reversed
+        bars_held = bar_idx - pos["entry_bar"]
+        if bars_held >= 3 and bar_idx >= 10:
+            ma5_now = float(self.ma5.iloc[bar_idx])
+            ma5_prev = float(self.ma5.iloc[bar_idx - 1])
+            ma10_now = float(self.ma10.iloc[bar_idx])
+            ma10_prev = float(self.ma10.iloc[bar_idx - 1])
+
+            if pos["direction"] == "BUY":
+                if ma10_prev <= ma5_prev and ma10_now > ma5_now:
+                    self._close(float(bar["close"]), bar_idx, "ma_exit")
+                    return
+            else:
+                if ma5_prev <= ma10_prev and ma5_now > ma10_now:
+                    self._close(float(bar["close"]), bar_idx, "ma_exit")
+                    return
 
     def _close(self, exit_price, bar_idx, reason):
         pos = self.current_position
