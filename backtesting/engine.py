@@ -112,16 +112,32 @@ class BacktestEngine:
         high = float(bar["high"])
         low = float(bar["low"])
 
+        sl_distance = abs(pos["entry_price"] - pos["stop_loss"])
+
         if pos["direction"] == "BUY":
             pos["highest"] = max(pos["highest"], high)
+            profit_pips = (pos["highest"] - pos["entry_price"]) / self.pip_value
+            if profit_pips >= 20:
+                trail_stop = pos["highest"] - sl_distance * 0.5
+                if trail_stop > pos["stop_loss"]:
+                    pos["stop_loss"] = trail_stop
             if low <= pos["stop_loss"]:
-                self._close(pos["stop_loss"], bar_idx, "stop_loss")
+                exit_price = pos["stop_loss"]
+                reason = "trailing_stop" if pos["stop_loss"] > pos["entry_price"] else "stop_loss"
+                self._close(exit_price, bar_idx, reason)
             elif high >= pos["take_profit"]:
                 self._close(pos["take_profit"], bar_idx, "take_profit")
         else:
             pos["lowest"] = min(pos["lowest"], low)
+            profit_pips = (pos["entry_price"] - pos["lowest"]) / self.pip_value
+            if profit_pips >= 20:
+                trail_stop = pos["lowest"] + sl_distance * 0.5
+                if trail_stop < pos["stop_loss"]:
+                    pos["stop_loss"] = trail_stop
             if high >= pos["stop_loss"]:
-                self._close(pos["stop_loss"], bar_idx, "stop_loss")
+                exit_price = pos["stop_loss"]
+                reason = "trailing_stop" if pos["stop_loss"] < pos["entry_price"] else "stop_loss"
+                self._close(exit_price, bar_idx, reason)
             elif low <= pos["take_profit"]:
                 self._close(pos["take_profit"], bar_idx, "take_profit")
 
