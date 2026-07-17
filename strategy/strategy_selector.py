@@ -35,7 +35,7 @@ REGIME_WEIGHTS = {
 }
 
 MIN_AGREEING = 2
-MIN_CONFIDENCE = 0.50
+MIN_CONFIDENCE = 0.20
 
 
 class StrategySelector:
@@ -72,28 +72,30 @@ class StrategySelector:
         sell_votes = [v for v in votes if v["signal"] == "SELL"]
 
         if len(buy_votes) >= MIN_AGREEING:
-            avg_conf = sum(v["weighted_confidence"] for v in buy_votes) / len(buy_votes)
-            if avg_conf >= MIN_CONFIDENCE:
+            avg_raw = sum(v["raw_confidence"] for v in buy_votes) / len(buy_votes)
+            avg_weighted = sum(v["weighted_confidence"] for v in buy_votes) / len(buy_votes)
+            if avg_raw >= MIN_CONFIDENCE:
                 all_reasons = []
                 for v in buy_votes:
                     all_reasons.extend(v["reasons"])
                 return {
                     "signal": "BUY",
-                    "confidence": round(min(avg_conf + 0.05 * (len(buy_votes) - MIN_AGREEING), 0.95), 4),
+                    "confidence": round(min(avg_weighted + 0.05 * (len(buy_votes) - MIN_AGREEING), 0.95), 4),
                     "agreeing_strategies": [v["strategy"] for v in buy_votes],
                     "reasons": all_reasons,
                     "votes": votes,
                 }
 
         if len(sell_votes) >= MIN_AGREEING:
-            avg_conf = sum(v["weighted_confidence"] for v in sell_votes) / len(sell_votes)
-            if avg_conf >= MIN_CONFIDENCE:
+            avg_raw = sum(v["raw_confidence"] for v in sell_votes) / len(sell_votes)
+            avg_weighted = sum(v["weighted_confidence"] for v in sell_votes) / len(sell_votes)
+            if avg_raw >= MIN_CONFIDENCE:
                 all_reasons = []
                 for v in sell_votes:
                     all_reasons.extend(v["reasons"])
                 return {
                     "signal": "SELL",
-                    "confidence": round(min(avg_conf + 0.05 * (len(sell_votes) - MIN_AGREEING), 0.95), 4),
+                    "confidence": round(min(avg_weighted + 0.05 * (len(sell_votes) - MIN_AGREEING), 0.95), 4),
                     "agreeing_strategies": [v["strategy"] for v in sell_votes],
                     "reasons": all_reasons,
                     "votes": votes,

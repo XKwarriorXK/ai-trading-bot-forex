@@ -24,19 +24,22 @@ class TrendStrategy:
         adx = ta.trend.adx(df["high"], df["low"], close, window=14)
         macd_hist = ta.trend.macd_diff(close)
 
-        if regime not in ("trending", "transitioning"):
-            return {"signal": "SKIP", "confidence": 0, "reason": "Not a trending regime"}
-
         score = 0
         reasons = []
 
         # EMA alignment
-        if ema_9.iloc[-1] > ema_21.iloc[-1] > ema_50.iloc[-1] > ema_200.iloc[-1]:
-            score += 0.25
-            reasons.append("Full bullish EMA stack")
-        elif ema_9.iloc[-1] < ema_21.iloc[-1] < ema_50.iloc[-1] < ema_200.iloc[-1]:
-            score -= 0.25
-            reasons.append("Full bearish EMA stack")
+        if ema_9.iloc[-1] > ema_21.iloc[-1] > ema_50.iloc[-1]:
+            score += 0.20
+            reasons.append("Bullish EMA alignment")
+            if len(df) >= 200 and ema_9.iloc[-1] > ema_200.iloc[-1]:
+                score += 0.10
+                reasons.append("Above EMA200")
+        elif ema_9.iloc[-1] < ema_21.iloc[-1] < ema_50.iloc[-1]:
+            score -= 0.20
+            reasons.append("Bearish EMA alignment")
+            if len(df) >= 200 and ema_9.iloc[-1] < ema_200.iloc[-1]:
+                score -= 0.10
+                reasons.append("Below EMA200")
 
         # EMA crossover
         if ema_9.iloc[-1] > ema_21.iloc[-1] and ema_9.iloc[-2] <= ema_21.iloc[-2]:
@@ -47,9 +50,9 @@ class TrendStrategy:
             reasons.append("Bearish EMA cross")
 
         # ADX strength
-        if adx.iloc[-1] > 25:
-            score *= 1.3
-            reasons.append(f"Strong trend ADX={adx.iloc[-1]:.0f}")
+        if adx.iloc[-1] > 20:
+            score *= 1.2
+            reasons.append(f"Trend strength ADX={adx.iloc[-1]:.0f}")
 
         # MACD confirmation
         if macd_hist.iloc[-1] > 0 and score > 0:
@@ -59,14 +62,14 @@ class TrendStrategy:
 
         # Pullback to EMA (entry refinement)
         price = close.iloc[-1]
-        if score > 0 and abs(price - ema_21.iloc[-1]) / price < 0.003:
-            score += 0.15
-            reasons.append("Price at EMA21 pullback")
-        elif score < 0 and abs(price - ema_21.iloc[-1]) / price < 0.003:
-            score -= 0.15
-            reasons.append("Price at EMA21 pullback")
+        if score > 0 and abs(price - ema_21.iloc[-1]) / price < 0.005:
+            score += 0.10
+            reasons.append("Price near EMA21 pullback")
+        elif score < 0 and abs(price - ema_21.iloc[-1]) / price < 0.005:
+            score -= 0.10
+            reasons.append("Price near EMA21 pullback")
 
-        if abs(score) < 0.20:
+        if abs(score) < 0.10:
             return {"signal": "SKIP", "confidence": 0, "reason": "Weak trend signal"}
 
         signal = "BUY" if score > 0 else "SELL"
@@ -90,44 +93,48 @@ class MeanReversionStrategy:
         bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
         stoch = ta.momentum.stoch(df["high"], df["low"], close, window=14, smooth_window=3)
 
-        if regime not in ("ranging", "transitioning"):
-            return {"signal": "SKIP", "confidence": 0, "reason": "Not a ranging regime"}
-
         score = 0
         reasons = []
 
         # RSI extremes
-        if rsi.iloc[-1] < 25:
+        if rsi.iloc[-1] < 30:
             score += 0.30
             reasons.append(f"RSI oversold ({rsi.iloc[-1]:.0f})")
-        elif rsi.iloc[-1] < 35:
+        elif rsi.iloc[-1] < 40:
             score += 0.15
             reasons.append(f"RSI low ({rsi.iloc[-1]:.0f})")
-        elif rsi.iloc[-1] > 75:
+        elif rsi.iloc[-1] > 70:
             score -= 0.30
             reasons.append(f"RSI overbought ({rsi.iloc[-1]:.0f})")
-        elif rsi.iloc[-1] > 65:
+        elif rsi.iloc[-1] > 60:
             score -= 0.15
             reasons.append(f"RSI high ({rsi.iloc[-1]:.0f})")
 
         # Bollinger Band touch
         price = close.iloc[-1]
+        bb_mid = bb.bollinger_mavg().iloc[-1]
         if price <= bb.bollinger_lband().iloc[-1]:
             score += 0.25
             reasons.append("At lower Bollinger Band")
+        elif price < bb_mid and price - bb.bollinger_lband().iloc[-1] < (bb_mid - bb.bollinger_lband().iloc[-1]) * 0.3:
+            score += 0.10
+            reasons.append("Near lower Bollinger Band")
         elif price >= bb.bollinger_hband().iloc[-1]:
             score -= 0.25
             reasons.append("At upper Bollinger Band")
+        elif price > bb_mid and bb.bollinger_hband().iloc[-1] - price < (bb.bollinger_hband().iloc[-1] - bb_mid) * 0.3:
+            score -= 0.10
+            reasons.append("Near upper Bollinger Band")
 
         # Stochastic
-        if stoch.iloc[-1] < 20:
+        if stoch.iloc[-1] < 25:
             score += 0.15
             reasons.append("Stochastic oversold")
-        elif stoch.iloc[-1] > 80:
+        elif stoch.iloc[-1] > 75:
             score -= 0.15
             reasons.append("Stochastic overbought")
 
-        if abs(score) < 0.30:
+        if abs(score) < 0.15:
             return {"signal": "SKIP", "confidence": 0, "reason": "Weak mean reversion signal"}
 
         signal = "BUY" if score > 0 else "SELL"
@@ -198,7 +205,7 @@ class BreakoutStrategy:
             score *= 1.2
             reasons.append("ATR expanding")
 
-        if abs(score) < 0.25:
+        if abs(score) < 0.15:
             return {"signal": "SKIP", "confidence": 0, "reason": "No breakout detected"}
 
         signal = "BUY" if score > 0 else "SELL"
@@ -227,35 +234,35 @@ class MomentumStrategy:
         reasons = []
 
         # RSI momentum (not extreme, but moving)
-        if 50 < rsi.iloc[-1] < 70 and rsi.iloc[-1] > rsi.iloc[-2]:
+        if 45 < rsi.iloc[-1] < 70 and rsi.iloc[-1] > rsi.iloc[-2]:
             score += 0.20
             reasons.append("Bullish RSI momentum")
-        elif 30 < rsi.iloc[-1] < 50 and rsi.iloc[-1] < rsi.iloc[-2]:
+        elif 30 < rsi.iloc[-1] < 55 and rsi.iloc[-1] < rsi.iloc[-2]:
             score -= 0.20
             reasons.append("Bearish RSI momentum")
 
         # MACD momentum
         if macd_hist.iloc[-1] > macd_hist.iloc[-2] > macd_hist.iloc[-3]:
-            score += 0.25
+            score += 0.20
             reasons.append("MACD histogram accelerating up")
         elif macd_hist.iloc[-1] < macd_hist.iloc[-2] < macd_hist.iloc[-3]:
-            score -= 0.25
+            score -= 0.20
             reasons.append("MACD histogram accelerating down")
 
         # Rate of change
-        if roc.iloc[-1] > 0.3:
-            score += 0.20
-            reasons.append(f"Strong positive ROC ({roc.iloc[-1]:.2f}%)")
-        elif roc.iloc[-1] < -0.3:
-            score -= 0.20
-            reasons.append(f"Strong negative ROC ({roc.iloc[-1]:.2f}%)")
+        if roc.iloc[-1] > 0.15:
+            score += 0.15
+            reasons.append(f"Positive ROC ({roc.iloc[-1]:.2f}%)")
+        elif roc.iloc[-1] < -0.15:
+            score -= 0.15
+            reasons.append(f"Negative ROC ({roc.iloc[-1]:.2f}%)")
 
         # ADX confirms directional movement
-        if adx.iloc[-1] > 20:
+        if adx.iloc[-1] > 18:
             score *= 1.2
             reasons.append(f"Directional strength ADX={adx.iloc[-1]:.0f}")
 
-        if abs(score) < 0.25:
+        if abs(score) < 0.15:
             return {"signal": "SKIP", "confidence": 0, "reason": "Weak momentum"}
 
         signal = "BUY" if score > 0 else "SELL"

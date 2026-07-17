@@ -38,9 +38,15 @@ class BacktestEngine:
 
         self.equity_curve = [{"bar": 0, "equity": self.balance}]
 
+        last_date = None
         for i in range(lookback, len(data)):
             window = data.iloc[max(0, i - lookback):i + 1].copy()
             current_bar = data.iloc[i]
+
+            bar_date = data.index[i].date() if hasattr(data.index[i], 'date') else None
+            if bar_date and bar_date != last_date:
+                self.risk._reset_daily(bar_date)
+                last_date = bar_date
 
             if self.current_position:
                 self._check_exit(current_bar, i)
