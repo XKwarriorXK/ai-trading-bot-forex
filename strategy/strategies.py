@@ -166,30 +166,39 @@ class BreakoutStrategy:
         # Bollinger squeeze detection (compression before breakout)
         avg_width = bb_width.rolling(50).mean().iloc[-1]
         current_width = bb_width.iloc[-1]
-        is_squeezed = current_width < avg_width * 0.6
+        is_squeezed = current_width < avg_width * 0.75
 
-        # Price range compression
-        lookback_20_high = high.iloc[-20:].max()
-        lookback_20_low = low.iloc[-20:].min()
-        range_pct = (lookback_20_high - lookback_20_low) / lookback_20_low
+        # Price range — exclude current bar so breakout can actually fire
+        lookback_high = high.iloc[-21:-1].max()
+        lookback_low = low.iloc[-21:-1].min()
 
         price = close.iloc[-1]
 
         # Breakout above recent range
-        if price > lookback_20_high and is_squeezed:
+        if price > lookback_high and is_squeezed:
             score += 0.40
-            reasons.append("Breakout above 20-bar high after squeeze")
-        elif price > lookback_20_high:
+            reasons.append("Breakout above range after squeeze")
+        elif price > lookback_high:
             score += 0.25
             reasons.append("Breakout above 20-bar high")
 
         # Breakdown below recent range
-        if price < lookback_20_low and is_squeezed:
+        if price < lookback_low and is_squeezed:
             score -= 0.40
-            reasons.append("Breakdown below 20-bar low after squeeze")
-        elif price < lookback_20_low:
+            reasons.append("Breakdown below range after squeeze")
+        elif price < lookback_low:
             score -= 0.25
             reasons.append("Breakdown below 20-bar low")
+
+        # Close near high/low of bar confirms conviction
+        bar_range = high.iloc[-1] - low.iloc[-1]
+        if bar_range > 0:
+            if score > 0 and (price - low.iloc[-1]) / bar_range > 0.7:
+                score += 0.10
+                reasons.append("Closing near bar high")
+            elif score < 0 and (high.iloc[-1] - price) / bar_range > 0.7:
+                score -= 0.10
+                reasons.append("Closing near bar low")
 
         # Volume confirmation (if available)
         if "volume" in df.columns:

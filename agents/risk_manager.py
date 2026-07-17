@@ -24,7 +24,7 @@ class RiskManager:
             self.current_date = today
 
     def check_trade(self, instrument: str, signal: str, confidence: float,
-                    atr: float = 0, price: float = 0) -> dict:
+                    atr: float = 0, price: float = 0, regime: str = "") -> dict:
         self._reset_daily()
 
         if self.trades_today >= RISK["max_trades_per_day"]:
@@ -56,7 +56,11 @@ class RiskManager:
         if signal == "SELL":
             units = -units
 
-        tp_pips = stop_pips * 2
+        tp_ratios = {"trending": 2.5, "volatile": 1.5, "ranging": 1.8, "transitioning": 2.0}
+        tp_ratio = tp_ratios.get(regime, 2.0)
+        if confidence > 0.30:
+            tp_ratio += 0.5
+        tp_pips = stop_pips * tp_ratio
 
         if price > 0:
             if signal == "BUY":

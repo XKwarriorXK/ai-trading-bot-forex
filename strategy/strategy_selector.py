@@ -36,6 +36,7 @@ REGIME_WEIGHTS = {
 
 MIN_AGREEING = 2
 MIN_CONFIDENCE = 0.20
+MIN_WEIGHTED_CONFIDENCE = 0.12
 
 
 class StrategySelector:
@@ -74,13 +75,14 @@ class StrategySelector:
         if len(buy_votes) >= MIN_AGREEING:
             avg_raw = sum(v["raw_confidence"] for v in buy_votes) / len(buy_votes)
             avg_weighted = sum(v["weighted_confidence"] for v in buy_votes) / len(buy_votes)
-            if avg_raw >= MIN_CONFIDENCE:
+            final_conf = round(min(avg_weighted + 0.05 * (len(buy_votes) - MIN_AGREEING), 0.95), 4)
+            if avg_raw >= MIN_CONFIDENCE and final_conf >= MIN_WEIGHTED_CONFIDENCE:
                 all_reasons = []
                 for v in buy_votes:
                     all_reasons.extend(v["reasons"])
                 return {
                     "signal": "BUY",
-                    "confidence": round(min(avg_weighted + 0.05 * (len(buy_votes) - MIN_AGREEING), 0.95), 4),
+                    "confidence": final_conf,
                     "agreeing_strategies": [v["strategy"] for v in buy_votes],
                     "reasons": all_reasons,
                     "votes": votes,
@@ -89,13 +91,14 @@ class StrategySelector:
         if len(sell_votes) >= MIN_AGREEING:
             avg_raw = sum(v["raw_confidence"] for v in sell_votes) / len(sell_votes)
             avg_weighted = sum(v["weighted_confidence"] for v in sell_votes) / len(sell_votes)
-            if avg_raw >= MIN_CONFIDENCE:
+            final_conf = round(min(avg_weighted + 0.05 * (len(sell_votes) - MIN_AGREEING), 0.95), 4)
+            if avg_raw >= MIN_CONFIDENCE and final_conf >= MIN_WEIGHTED_CONFIDENCE:
                 all_reasons = []
                 for v in sell_votes:
                     all_reasons.extend(v["reasons"])
                 return {
                     "signal": "SELL",
-                    "confidence": round(min(avg_weighted + 0.05 * (len(sell_votes) - MIN_AGREEING), 0.95), 4),
+                    "confidence": final_conf,
                     "agreeing_strategies": [v["strategy"] for v in sell_votes],
                     "reasons": all_reasons,
                     "votes": votes,

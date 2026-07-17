@@ -141,7 +141,7 @@ class TradePipeline:
         atr = tech["indicators"].get("atr", 0)
         risk_check = self.risk.check_trade(
             instrument, ensemble["signal"], confidence,
-            atr=atr, price=price,
+            atr=atr, price=price, regime=regime,
         )
         if not risk_check["approved"]:
             result["reason"] = f"Risk: {risk_check['reason']}"
