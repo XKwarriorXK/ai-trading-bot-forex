@@ -101,13 +101,13 @@ class BacktestEngine:
         risk_pips = abs(entry_price - sl_price) / self.pip_value
 
         if signal["final_decision"] == "BUY":
-            tp1_price = entry_price + (risk_pips * self.pip_value)
-            tp2_price = entry_price + (risk_pips * 2.0 * self.pip_value)
-            tp3_price = entry_price + (risk_pips * 3.0 * self.pip_value)
+            tp1_price = entry_price + (risk_pips * 1.5 * self.pip_value)
+            tp2_price = entry_price + (risk_pips * 2.5 * self.pip_value)
+            tp3_price = entry_price + (risk_pips * 4.0 * self.pip_value)
         else:
-            tp1_price = entry_price - (risk_pips * self.pip_value)
-            tp2_price = entry_price - (risk_pips * 2.0 * self.pip_value)
-            tp3_price = entry_price - (risk_pips * 3.0 * self.pip_value)
+            tp1_price = entry_price - (risk_pips * 1.5 * self.pip_value)
+            tp2_price = entry_price - (risk_pips * 2.5 * self.pip_value)
+            tp3_price = entry_price - (risk_pips * 4.0 * self.pip_value)
 
         self.current_position = {
             "direction": signal["final_decision"],
@@ -181,7 +181,7 @@ class BacktestEngine:
 
         # 3. TIME STOP — trade going nowhere, dead money
         #    After 20 bars (20 hours on H1) with less than 0.3R profit, kill it
-        if bars_held >= 20 and not pos["tp1_hit"]:
+        if bars_held >= 30 and not pos["tp1_hit"]:
             if pos["direction"] == "BUY":
                 pips_profit = (close - pos["entry_price"]) / self.pip_value
             else:
@@ -202,7 +202,7 @@ class BacktestEngine:
                 tp1_triggered = low <= pos["tp1_price"]
 
             if tp1_triggered:
-                units_to_close = int(pos["original_units"] * 0.50)
+                units_to_close = int(pos["original_units"] * 0.33)
                 if units_to_close > 0:
                     self._close_partial(pos["tp1_price"], bar_idx, "tp1_partial", units_to_close)
                 pos["tp1_hit"] = True
@@ -259,8 +259,8 @@ class BacktestEngine:
 
         # 8. RUNNER CLEANUP — if only tiny units left and past 3R, take profit
         if pos["tp3_hit"] and pos["units_remaining"] <= int(pos["original_units"] * 0.15):
-            if current_r >= 4.0:
-                self._close_full(close, bar_idx, "runner_exit_4R")
+            if current_r >= 5.0:
+                self._close_full(close, bar_idx, "runner_exit_5R")
                 return
 
     def _close_partial(self, exit_price, bar_idx, reason, units_to_close):
