@@ -119,8 +119,11 @@ class TradePipeline:
             result["news"] = news_risk
             confidence += news_risk.get("confidence_modifier", 0)
 
-        # 8. AI DEBATE (full mode only)
-        if mode == "full" and self.debate:
+        # 8. AI DEBATE — only on A+ setups (85%+ confidence)
+        #    The brain reviews the best trades, not every signal
+        AI_DEBATE_THRESHOLD = 0.85
+        if self.debate and confidence >= AI_DEBATE_THRESHOLD:
+            logger.info(f"AI DEBATE | {instrument} | Conf {confidence:.0%} >= {AI_DEBATE_THRESHOLD:.0%} — requesting brain review")
             debate_result = self.debate.debate(instrument, {
                 "signal": ensemble["signal"],
                 "confidence": confidence,
@@ -135,6 +138,8 @@ class TradePipeline:
                 return result
             confidence = debate_result.get("adjusted_confidence", confidence)
             result["debate"] = debate_result
+        elif self.debate and confidence < AI_DEBATE_THRESHOLD:
+            logger.info(f"SKIP DEBATE | {instrument} | Conf {confidence:.0%} < {AI_DEBATE_THRESHOLD:.0%} — not A+ grade")
 
         # Clamp confidence
         confidence = max(0, min(confidence, 0.95))
