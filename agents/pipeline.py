@@ -4,6 +4,7 @@ Spread → Session → Multi-TF → Market Structure → Strategy Ensemble →
 News Risk → AI Debate → Risk Manager → Execute
 """
 import logging
+from config.settings import INSTRUMENTS, RISK
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,27 @@ class TradePipeline:
         AI_DEBATE_THRESHOLD = 0.85
         if self.debate and confidence >= AI_DEBATE_THRESHOLD:
             logger.info(f"AI DEBATE | {instrument} | Conf {confidence:.0%} >= {AI_DEBATE_THRESHOLD:.0%} — requesting brain review")
+
+            price = price_data.get("bid", 0) if price_data else 0
+            spread = price_data.get("spread", 0) if price_data else 0
+            atr = tech["indicators"].get("atr", 0)
+            spec = INSTRUMENTS.get(instrument, {})
+            pip_value = 10 ** spec.get("pip_location", -4)
+            pre_sl_pips = max(atr / pip_value * 2.0, 15) if atr > 0 else RISK["default_stop_loss_pips"]
+            pre_tp_pips = pre_sl_pips * (2.5 if regime == "trending" else 2.0)
+            if price > 0:
+                if ensemble["signal"] == "BUY":
+                    pre_sl_price = round(price - (pre_sl_pips * pip_value), 5)
+                    pre_tp_price = round(price + (pre_tp_pips * pip_value), 5)
+                else:
+                    pre_sl_price = round(price + (pre_sl_pips * pip_value), 5)
+                    pre_tp_price = round(price - (pre_tp_pips * pip_value), 5)
+            else:
+                pre_sl_price = "N/A"
+                pre_tp_price = "N/A"
+
+            open_trades = len(self.risk.open_instruments) if self.risk else 0
+
             debate_result = self.debate.debate(instrument, {
                 "signal": ensemble["signal"],
                 "confidence": confidence,
@@ -137,6 +159,12 @@ class TradePipeline:
                 "structure": structure,
                 "session": result.get("session", []),
                 "news": news_risk,
+                "stop_loss_pips": round(pre_sl_pips, 1),
+                "take_profit_pips": round(pre_tp_pips, 1),
+                "stop_loss_price": pre_sl_price,
+                "take_profit_price": pre_tp_price,
+                "spread": round(spread / pip_value, 1) if pip_value else 0,
+                "open_trades": open_trades,
             })
             verdict = debate_result.get("verdict", "SKIP")
             if verdict == "SKIP":

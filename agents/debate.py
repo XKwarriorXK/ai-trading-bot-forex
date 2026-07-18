@@ -31,9 +31,34 @@ def _build_context(instrument, tech_result):
     structure = tech_result.get("structure", {})
     session = tech_result.get("session", {})
     news = tech_result.get("news", {})
+    sl_pips = tech_result.get("stop_loss_pips", "N/A")
+    tp_pips = tech_result.get("take_profit_pips", "N/A")
+    sl_price = tech_result.get("stop_loss_price", "N/A")
+    tp_price = tech_result.get("take_profit_price", "N/A")
+    spread = tech_result.get("spread", "N/A")
+    open_trades = tech_result.get("open_trades", 0)
 
     active_sessions = session if isinstance(session, list) else []
     news_events = news.get("events", [])
+
+    price = indicators.get('price', 'N/A')
+    ema_9 = indicators.get('ema_9', 'N/A')
+    ema_21 = indicators.get('ema_21', 'N/A')
+    ema_50 = indicators.get('ema_50', 'N/A')
+    ema_200 = indicators.get('ema_200', 'N/A')
+
+    ema_alignment = "N/A"
+    if all(v != 'N/A' and v is not None for v in [price, ema_9, ema_21, ema_50]):
+        if price > ema_9 > ema_21 > ema_50:
+            ema_alignment = "BULLISH (price > EMA9 > EMA21 > EMA50)"
+        elif price < ema_9 < ema_21 < ema_50:
+            ema_alignment = "BEARISH (price < EMA9 < EMA21 < EMA50)"
+        else:
+            ema_alignment = "MIXED (no clean alignment)"
+
+    rr_ratio = "N/A"
+    if sl_pips != "N/A" and tp_pips != "N/A" and sl_pips > 0:
+        rr_ratio = f"1:{tp_pips / sl_pips:.1f}"
 
     return (
         f"=== A+ TRADE UNDER REVIEW ===\n"
@@ -44,7 +69,7 @@ def _build_context(instrument, tech_result):
         f"Independent categories: {num_categories} ({', '.join(categories)})\n"
         f"Reasons: {', '.join(reasons[:10])}\n\n"
         f"=== RAW INDICATORS ===\n"
-        f"Price: {indicators.get('price', 'N/A')}\n"
+        f"Price: {price}\n"
         f"RSI(14): {indicators.get('rsi', 'N/A')}\n"
         f"ADX: {indicators.get('adx', 'N/A')}\n"
         f"MACD Histogram: {indicators.get('macd_histogram', 'N/A')}\n"
@@ -52,8 +77,17 @@ def _build_context(instrument, tech_result):
         f"Stochastic K: {indicators.get('stoch_k', 'N/A')}\n"
         f"Bollinger Upper: {indicators.get('bb_upper', 'N/A')}\n"
         f"Bollinger Lower: {indicators.get('bb_lower', 'N/A')}\n"
-        f"EMA 50: {indicators.get('ema_50', 'N/A')}\n"
-        f"EMA 200: {indicators.get('ema_200', 'N/A')}\n\n"
+        f"Bollinger Width: {indicators.get('bb_width', 'N/A')}\n"
+        f"EMA 9: {ema_9}\n"
+        f"EMA 21: {ema_21}\n"
+        f"EMA 50: {ema_50}\n"
+        f"EMA 200: {ema_200}\n"
+        f"EMA Alignment: {ema_alignment}\n\n"
+        f"=== TRADE PLAN ===\n"
+        f"Entry: {price} | Stop Loss: {sl_price} ({sl_pips} pips)\n"
+        f"Take Profit: {tp_price} ({tp_pips} pips)\n"
+        f"Risk:Reward: {rr_ratio}\n"
+        f"Spread: {spread} pips\n\n"
         f"=== MARKET STRUCTURE ===\n"
         f"Bias: {structure.get('bias', 'unknown')}\n"
         f"Pattern: {structure.get('pattern', 'unknown')}\n"
@@ -62,7 +96,9 @@ def _build_context(instrument, tech_result):
         f"=== SESSION & NEWS ===\n"
         f"Active sessions: {', '.join(active_sessions) if active_sessions else 'unknown'}\n"
         f"News risk: {news.get('risk_level', 'low')}\n"
-        f"Events: {[e.get('event', '?') for e in news_events] if news_events else 'None'}\n"
+        f"Events: {[e.get('event', '?') for e in news_events] if news_events else 'None'}\n\n"
+        f"=== RISK CONTEXT ===\n"
+        f"Currently open trades: {open_trades}\n"
     )
 
 
