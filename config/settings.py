@@ -15,38 +15,32 @@ AI_PROVIDERS = {
             "fast": "llama-3.3-70b-versatile",
             "reasoning": "llama-3.3-70b-versatile",
             "small": "llama-3.1-8b-instant",
+            "gpt120": "openai/gpt-oss-120b",
+            "gpt20": "openai/gpt-oss-20b",
         },
         "base_url": "https://api.groq.com/openai/v1",
-    },
-    "cerebras": {
-        "api_key": os.getenv("CEREBRAS_API_KEY"),
-        "models": {
-            "fast": "gpt-oss-120b",
-            "reasoning": "gpt-oss-120b",
-        },
-        "base_url": "https://api.cerebras.ai/v1",
     },
 }
 
 TASK_ROUTING = {
-    "market_analysis":  ["cerebras:fast", "groq:fast", "groq:small"],
-    "trade_decision":   ["cerebras:reasoning", "groq:reasoning", "groq:small"],
-    "risk_assessment":  ["cerebras:reasoning", "groq:reasoning", "groq:small"],
-    "sentiment":        ["cerebras:fast", "groq:fast", "groq:small"],
-    "reflection":       ["cerebras:reasoning", "groq:reasoning", "groq:small"],
-    "regime_detection": ["cerebras:fast", "groq:fast", "groq:small"],
-    "debate":           ["cerebras:fast", "groq:fast", "groq:small"],
-    "strategy_select":  ["cerebras:fast", "groq:fast", "groq:small"],
-    "macro_analysis":   ["cerebras:fast", "groq:fast", "groq:small"],
+    "market_analysis":  ["groq:gpt120", "groq:fast", "groq:small"],
+    "trade_decision":   ["groq:gpt120", "groq:reasoning", "groq:small"],
+    "risk_assessment":  ["groq:gpt120", "groq:reasoning", "groq:small"],
+    "sentiment":        ["groq:gpt20", "groq:fast", "groq:small"],
+    "reflection":       ["groq:gpt120", "groq:reasoning", "groq:small"],
+    "regime_detection": ["groq:gpt20", "groq:fast", "groq:small"],
+    "debate":           ["groq:gpt120", "groq:fast", "groq:small"],
+    "strategy_select":  ["groq:gpt20", "groq:fast", "groq:small"],
+    "macro_analysis":   ["groq:gpt120", "groq:fast", "groq:small"],
 }
 
 APPROVAL_CHAIN = {
     "level_2_reviewers": [
-        {"provider": "groq", "model": "fast", "role": "technical_expert"},
-        {"provider": "cerebras", "model": "fast", "role": "structure_expert"},
+        {"provider": "groq", "model": "gpt120", "role": "technical_expert"},
+        {"provider": "groq", "model": "gpt20", "role": "structure_expert"},
         {"provider": "groq", "model": "small", "role": "risk_expert"},
     ],
-    "level_3_approver": {"provider": "cerebras", "model": "reasoning"},
+    "level_3_approver": {"provider": "groq", "model": "fast"},
     "min_approvals": 2,
 }
 

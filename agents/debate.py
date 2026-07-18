@@ -3,11 +3,11 @@
 
 Level 1: Strategy ensemble (11 strategies) produces A+ signal
 Level 2: 3 AI sub-approvers (different models) independently review
-         - Groq/Llama 3.3 70B: Technical Expert
-         - Cerebras/GPT-OSS 120B: Structure Expert
-         - Groq/Llama 3.1 8B: Risk Expert
-         Need 2/3 to approve.
-Level 3: Final Approver (Cerebras/GPT-OSS 120B) reviews everything —
+         - GPT-OSS 120B: Technical Expert (largest, most thorough)
+         - GPT-OSS 20B: Structure Expert (fast, different architecture)
+         - Llama 3.1 8B: Risk Expert (conservative, quick)
+         Need 2/3 to approve. Each model has separate rate limits.
+Level 3: Final Approver (Llama 3.3 70B) reviews everything —
          all expert opinions, why it hit A+, what additional data
          they sourced. Makes the final EXECUTE or REJECT call.
 """

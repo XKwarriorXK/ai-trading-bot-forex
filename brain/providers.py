@@ -1,5 +1,5 @@
 """
-AI Provider — Multi-provider support (Groq + Cerebras) with circuit breakers.
+AI Provider — Multi-model support via Groq with circuit breakers.
 """
 import json
 import time
@@ -65,7 +65,6 @@ class AIProvider:
         self.circuit_breakers = {}
         self.token_budget = TokenBudget()
         self._init_groq()
-        self._init_cerebras()
 
     def _init_groq(self):
         config = AI_PROVIDERS.get("groq", {})
@@ -75,24 +74,9 @@ class AIProvider:
                 self.clients["groq"] = Groq(api_key=config["api_key"])
                 self.models["groq"] = config["models"]
                 self.circuit_breakers["groq"] = CircuitBreaker()
-                logger.info("Groq provider initialized")
+                logger.info(f"Groq provider initialized — models: {list(config['models'].keys())}")
             except ImportError:
                 logger.warning("groq package not installed")
-
-    def _init_cerebras(self):
-        config = AI_PROVIDERS.get("cerebras", {})
-        if config.get("api_key"):
-            try:
-                from openai import OpenAI
-                self.clients["cerebras"] = OpenAI(
-                    api_key=config["api_key"],
-                    base_url=config["base_url"],
-                )
-                self.models["cerebras"] = config["models"]
-                self.circuit_breakers["cerebras"] = CircuitBreaker()
-                logger.info("Cerebras provider initialized")
-            except ImportError:
-                logger.warning("openai package not installed")
 
     def call(self, model_key: str, prompt: str, system_prompt: str = "",
              priority: str = "medium", max_tokens: int = 1024,
@@ -157,11 +141,17 @@ class AIProvider:
             return {**result, "parsed": None}
         try:
             text = result["content"]
+            import re
+            fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+            if fence:
+                text = fence.group(1)
             start = text.find("{")
             end = text.rfind("}") + 1
             if start >= 0 and end > start:
                 parsed = json.loads(text[start:end])
                 return {**result, "parsed": parsed}
+            logger.warning(f"No JSON in AI response: {result['content'][:200]}")
             return {**result, "parsed": None, "error": "No JSON found"}
         except json.JSONDecodeError as e:
+            logger.warning(f"JSON parse error: {e} | Response: {result['content'][:200]}")
             return {**result, "parsed": None, "error": f"JSON parse error: {e}"}
