@@ -231,30 +231,43 @@ class DebateAgent:
                     "additional_data": extra,
                 })
             else:
-                logger.warning(f"LEVEL 2 | {role} ({provider_name}) | FAILED — treating as abstain")
-                expert_results.append({
-                    "role": role,
-                    "provider": provider_name,
-                    "approved": False,
-                    "confidence_adjustment": 0,
-                    "key_finding": f"AI call failed ({provider_name})",
-                    "additional_data": "",
-                })
+                logger.warning(f"LEVEL 2 | {role} ({provider_name}) | FAILED — excluded from vote")
 
         approvals = sum(1 for e in expert_results if e["approved"])
+        rejections = sum(1 for e in expert_results if not e["approved"])
         total = len(expert_results)
 
-        logger.info(f"LEVEL 2 COMPLETE | {approvals}/{total} approved (need {min_approvals})")
+        logger.info(f"LEVEL 2 COMPLETE | {approvals} approved, {rejections} rejected, {len(reviewers) - total} unavailable")
 
-        if approvals < min_approvals:
-            rejections = [e for e in expert_results if not e["approved"]]
-            reject_reasons = "; ".join(e["key_finding"] for e in rejections)
+        if total == 0:
+            logger.warning("LEVEL 2 | No reviewers available — passing with confidence haircut")
+            return {
+                "verdict": signal,
+                "adjusted_confidence": confidence * 0.85,
+                "reasoning": "No AI reviewers available — original signal with 15% haircut",
+                "expert_results": [],
+                "level": 2,
+            }
+
+        if rejections > approvals:
+            reject_list = [e for e in expert_results if not e["approved"]]
+            reject_reasons = "; ".join(e["key_finding"] for e in reject_list)
             logger.info(f"LEVEL 2 REJECTED | {reject_reasons}")
             return {
                 "verdict": "SKIP",
                 "adjusted_confidence": confidence * 0.5,
-                "reasoning": f"Expert panel rejected ({approvals}/{total}): {reject_reasons}",
+                "reasoning": f"Expert panel rejected ({approvals} approve, {rejections} reject): {reject_reasons}",
                 "expert_results": expert_results,
+                "level": 2,
+            }
+
+        if approvals == 0 and rejections == 0:
+            logger.warning("LEVEL 2 | All reviewers failed — passing with confidence haircut")
+            return {
+                "verdict": signal,
+                "adjusted_confidence": confidence * 0.85,
+                "reasoning": "All AI reviewers unavailable — original signal with 15% haircut",
+                "expert_results": [],
                 "level": 2,
             }
 
