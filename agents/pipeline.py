@@ -151,8 +151,9 @@ class TradePipeline:
         # Clamp confidence
         confidence = max(0, min(confidence, 0.95))
 
-        if confidence < 0.40:
-            result["reason"] = f"Confidence {confidence:.0%} below 40% minimum"
+        grade = ensemble.get("grade", "C")
+        if grade in ("C", "B"):
+            result["reason"] = f"Grade {grade} ({confidence:.0%}) — only A and A+ setups trade"
             self._log_skip(instrument, result["reason"])
             return result
 
