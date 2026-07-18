@@ -66,7 +66,6 @@ class AIProvider:
         self.token_budget = TokenBudget()
         self._init_groq()
         self._init_cerebras()
-        self._init_deepseek()
 
     def _init_groq(self):
         config = AI_PROVIDERS.get("groq", {})
@@ -92,21 +91,6 @@ class AIProvider:
                 self.models["cerebras"] = config["models"]
                 self.circuit_breakers["cerebras"] = CircuitBreaker()
                 logger.info("Cerebras provider initialized")
-            except ImportError:
-                logger.warning("openai package not installed")
-
-    def _init_deepseek(self):
-        config = AI_PROVIDERS.get("deepseek", {})
-        if config.get("api_key"):
-            try:
-                from openai import OpenAI
-                self.clients["deepseek"] = OpenAI(
-                    api_key=config["api_key"],
-                    base_url=config["base_url"],
-                )
-                self.models["deepseek"] = config["models"]
-                self.circuit_breakers["deepseek"] = CircuitBreaker()
-                logger.info("DeepSeek provider initialized")
             except ImportError:
                 logger.warning("openai package not installed")
 

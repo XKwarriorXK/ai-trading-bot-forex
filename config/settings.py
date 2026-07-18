@@ -21,18 +21,10 @@ AI_PROVIDERS = {
     "cerebras": {
         "api_key": os.getenv("CEREBRAS_API_KEY"),
         "models": {
-            "fast": "llama-3.3-70b",
-            "reasoning": "llama-3.3-70b",
+            "fast": "gpt-oss-120b",
+            "reasoning": "gpt-oss-120b",
         },
         "base_url": "https://api.cerebras.ai/v1",
-    },
-    "deepseek": {
-        "api_key": os.getenv("DEEPSEEK_API_KEY"),
-        "models": {
-            "fast": "deepseek-chat",
-            "reasoning": "deepseek-reasoner",
-        },
-        "base_url": "https://api.deepseek.com/v1",
     },
 }
 
@@ -51,10 +43,10 @@ TASK_ROUTING = {
 APPROVAL_CHAIN = {
     "level_2_reviewers": [
         {"provider": "groq", "model": "fast", "role": "technical_expert"},
-        {"provider": "deepseek", "model": "fast", "role": "structure_expert"},
-        {"provider": "cerebras", "model": "fast", "role": "risk_expert"},
+        {"provider": "cerebras", "model": "fast", "role": "structure_expert"},
+        {"provider": "groq", "model": "small", "role": "risk_expert"},
     ],
-    "level_3_approver": {"provider": "groq", "model": "reasoning"},
+    "level_3_approver": {"provider": "cerebras", "model": "reasoning"},
     "min_approvals": 2,
 }
 
