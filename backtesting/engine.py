@@ -1,6 +1,7 @@
 """
 Backtesting Engine — walks through historical forex data bar by bar.
 Realistic cost modeling with spread and slippage.
+Institutional exit management: breakeven stop, ATR trailing stop.
 """
 import logging
 import numpy as np
@@ -39,8 +40,8 @@ class BacktestEngine:
         self.equity_curve = [{"bar": 0, "equity": self.balance}]
 
         import ta
-        self.ma5 = ta.trend.ema_indicator(data["close"], window=5)
-        self.ma10 = ta.trend.ema_indicator(data["close"], window=10)
+        self.atr = ta.volatility.average_true_range(
+            data["high"], data["low"], data["close"], window=14)
 
         last_date = None
         for i in range(lookback, len(data)):
@@ -98,6 +99,7 @@ class BacktestEngine:
                 tp_price = entry_price - (tp_pips * self.pip_value)
 
         units = abs(signal.get("units", 1000))
+        risk_per_pip = abs(entry_price - sl_price) / self.pip_value
 
         self.current_position = {
             "direction": signal["final_decision"],
@@ -110,39 +112,71 @@ class BacktestEngine:
             "confidence": signal.get("confidence", 0),
             "highest": entry_price,
             "lowest": entry_price,
+            "risk_pips": risk_per_pip,
+            "at_breakeven": False,
         }
 
     def _check_exit(self, bar, bar_idx):
         pos = self.current_position
         high = float(bar["high"])
         low = float(bar["low"])
+        close = float(bar["close"])
 
-        # SL check first — always protect capital
+        if pos["direction"] == "BUY":
+            if high > pos["highest"]:
+                pos["highest"] = high
+        else:
+            if low < pos["lowest"]:
+                pos["lowest"] = low
+
+        # 1. STOP LOSS — always protect capital
         if pos["direction"] == "BUY":
             if low <= pos["stop_loss"]:
-                self._close(pos["stop_loss"], bar_idx, "stop_loss")
+                exit_price = pos["stop_loss"]
+                reason = "breakeven_stop" if pos["at_breakeven"] else "stop_loss"
+                self._close(exit_price, bar_idx, reason)
                 return
         else:
             if high >= pos["stop_loss"]:
-                self._close(pos["stop_loss"], bar_idx, "stop_loss")
+                exit_price = pos["stop_loss"]
+                reason = "breakeven_stop" if pos["at_breakeven"] else "stop_loss"
+                self._close(exit_price, bar_idx, reason)
                 return
 
-        # MA EXIT — when MA10 crosses MA5, momentum has reversed
-        bars_held = bar_idx - pos["entry_bar"]
-        if bars_held >= 3 and bar_idx >= 10:
-            ma5_now = float(self.ma5.iloc[bar_idx])
-            ma5_prev = float(self.ma5.iloc[bar_idx - 1])
-            ma10_now = float(self.ma10.iloc[bar_idx])
-            ma10_prev = float(self.ma10.iloc[bar_idx - 1])
+        # 2. TAKE PROFIT — hard target from risk manager R:R
+        if pos["direction"] == "BUY":
+            if high >= pos["take_profit"]:
+                self._close(pos["take_profit"], bar_idx, "take_profit")
+                return
+        else:
+            if low <= pos["take_profit"]:
+                self._close(pos["take_profit"], bar_idx, "take_profit")
+                return
+
+        # 3. BREAKEVEN STOP — once up 1R, move stop to entry (free trade)
+        if not pos["at_breakeven"] and pos["risk_pips"] > 0:
+            if pos["direction"] == "BUY":
+                pips_in_profit = (pos["highest"] - pos["entry_price"]) / self.pip_value
+            else:
+                pips_in_profit = (pos["entry_price"] - pos["lowest"]) / self.pip_value
+
+            if pips_in_profit >= pos["risk_pips"]:
+                pos["stop_loss"] = pos["entry_price"]
+                pos["at_breakeven"] = True
+
+        # 4. ATR TRAILING STOP — lock in profit as price runs
+        if pos["at_breakeven"] and bar_idx < len(self.atr) and not pd.isna(self.atr.iloc[bar_idx]):
+            atr_val = float(self.atr.iloc[bar_idx])
+            trail_distance = atr_val * 2.0
 
             if pos["direction"] == "BUY":
-                if ma10_prev <= ma5_prev and ma10_now > ma5_now:
-                    self._close(float(bar["close"]), bar_idx, "ma_exit")
-                    return
+                new_trail = pos["highest"] - trail_distance
+                if new_trail > pos["stop_loss"]:
+                    pos["stop_loss"] = new_trail
             else:
-                if ma5_prev <= ma10_prev and ma5_now > ma10_now:
-                    self._close(float(bar["close"]), bar_idx, "ma_exit")
-                    return
+                new_trail = pos["lowest"] + trail_distance
+                if new_trail < pos["stop_loss"]:
+                    pos["stop_loss"] = new_trail
 
     def _close(self, exit_price, bar_idx, reason):
         pos = self.current_position
@@ -196,6 +230,13 @@ class BacktestEngine:
         returns = pd.Series(pnls)
         sharpe = (returns.mean() / returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
 
+        exit_reasons = {}
+        for t in self.trades:
+            r = t["reason"]
+            exit_reasons[r] = exit_reasons.get(r, 0) + 1
+
+        avg_bars = np.mean([t["bars_held"] for t in self.trades])
+
         return {
             "instrument": self.instrument,
             "mode": self.mode,
@@ -216,6 +257,8 @@ class BacktestEngine:
             "final_balance": round(self.balance, 2),
             "return_pct": round((self.balance - self.initial_balance) / self.initial_balance * 100, 2),
             "avg_pips": round(np.mean([t["pnl_pips"] for t in self.trades]), 1),
+            "avg_bars_held": round(avg_bars, 1),
+            "exit_reasons": exit_reasons,
             "trades": self.trades,
             "equity_curve": self.equity_curve,
         }
