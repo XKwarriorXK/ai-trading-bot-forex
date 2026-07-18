@@ -26,6 +26,14 @@ AI_PROVIDERS = {
         },
         "base_url": "https://api.cerebras.ai/v1",
     },
+    "deepseek": {
+        "api_key": os.getenv("DEEPSEEK_API_KEY"),
+        "models": {
+            "fast": "deepseek-chat",
+            "reasoning": "deepseek-reasoner",
+        },
+        "base_url": "https://api.deepseek.com/v1",
+    },
 }
 
 TASK_ROUTING = {
@@ -38,6 +46,16 @@ TASK_ROUTING = {
     "debate":           ["cerebras:fast", "groq:fast", "groq:small"],
     "strategy_select":  ["cerebras:fast", "groq:fast", "groq:small"],
     "macro_analysis":   ["cerebras:fast", "groq:fast", "groq:small"],
+}
+
+APPROVAL_CHAIN = {
+    "level_2_reviewers": [
+        {"provider": "groq", "model": "fast", "role": "technical_expert"},
+        {"provider": "deepseek", "model": "fast", "role": "structure_expert"},
+        {"provider": "cerebras", "model": "fast", "role": "risk_expert"},
+    ],
+    "level_3_approver": {"provider": "groq", "model": "reasoning"},
+    "min_approvals": 2,
 }
 
 CIRCUIT_BREAKER = {

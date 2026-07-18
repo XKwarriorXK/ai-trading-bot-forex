@@ -51,10 +51,13 @@ def build_pipeline(args):
 
     debate = None
     router = None
-    if args.mode == "full":
-        provider = AIProvider()
+    provider = AIProvider()
+    if provider.clients:
         router = TaskRouter(provider)
-        debate = DebateAgent(router)
+        debate = DebateAgent(router=router, provider=provider)
+        logger.info(f"AI brain active — providers: {list(provider.clients.keys())}")
+    else:
+        logger.info("AI brain disabled — no API keys configured")
 
     pipeline = TradePipeline(
         technical=technical,
