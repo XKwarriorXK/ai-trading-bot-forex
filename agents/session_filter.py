@@ -23,8 +23,8 @@ class SessionFilter:
         "USD_CHF": ["london", "new_york"],
     }
 
-    def check(self, instrument: str) -> dict:
-        now = datetime.now(timezone.utc)
+    def check(self, instrument: str, timestamp=None) -> dict:
+        now = timestamp if timestamp else datetime.now(timezone.utc)
         hour = now.hour
         weekday = now.weekday()
 

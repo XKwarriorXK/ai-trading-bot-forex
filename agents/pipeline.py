@@ -45,8 +45,9 @@ class TradePipeline:
                 return result
 
         # 2. SESSION FILTER — are we in a good trading window?
+        bar_timestamp = price_data.get("timestamp") if price_data else None
         if self.session:
-            session_check = self.session.check(instrument)
+            session_check = self.session.check(instrument, timestamp=bar_timestamp)
             if not session_check.get("tradeable", True):
                 result["reason"] = f"Session: {session_check.get('reason')}"
                 self._log_skip(instrument, result["reason"])
@@ -114,7 +115,7 @@ class TradePipeline:
         # 7. NEWS RISK — reduce confidence near high-impact events
         news_risk = {}
         if self.news:
-            news_risk = self.news.check_risk(instrument)
+            news_risk = self.news.check_risk(instrument, timestamp=bar_timestamp)
             result["news"] = news_risk
             confidence += news_risk.get("confidence_modifier", 0)
 

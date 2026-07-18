@@ -56,9 +56,10 @@ class BacktestEngine:
                 self._check_exit(current_bar, i)
 
             if not self.current_position:
+                bar_ts = data.index[i] if hasattr(data.index[i], 'hour') else None
                 result = self.pipeline.evaluate(
                     window, self.instrument,
-                    price_data={"bid": float(current_bar["close"]), "spread": self.spec["spread_avg"] * self.pip_value},
+                    price_data={"bid": float(current_bar["close"]), "spread": self.spec["spread_avg"] * self.pip_value, "timestamp": bar_ts},
                     mode=self.mode,
                 )
 

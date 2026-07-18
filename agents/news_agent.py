@@ -60,8 +60,8 @@ def _week_of_month(dt):
 
 
 class NewsAgent:
-    def check_risk(self, instrument: str) -> dict:
-        now = datetime.now(timezone.utc)
+    def check_risk(self, instrument: str, timestamp=None) -> dict:
+        now = timestamp if timestamp else datetime.now(timezone.utc)
         currencies = CURRENCY_MAP.get(instrument, [])
         risks = []
 
