@@ -15,6 +15,7 @@ REGIME_WEIGHTS = {
         "macd_trend": 1.0,
         "ichimoku": 0.9,
         "smart_money": 0.6,
+        "price_action": 0.7,
     },
     "ranging": {
         "donchian_breakout": 0.2,
@@ -23,6 +24,7 @@ REGIME_WEIGHTS = {
         "macd_trend": 0.3,
         "ichimoku": 0.4,
         "smart_money": 0.8,
+        "price_action": 0.9,
     },
     "volatile": {
         "donchian_breakout": 0.7,
@@ -31,6 +33,7 @@ REGIME_WEIGHTS = {
         "macd_trend": 0.5,
         "ichimoku": 0.5,
         "smart_money": 0.7,
+        "price_action": 0.8,
     },
     "transitioning": {
         "donchian_breakout": 0.5,
@@ -39,6 +42,7 @@ REGIME_WEIGHTS = {
         "macd_trend": 0.6,
         "ichimoku": 0.6,
         "smart_money": 0.7,
+        "price_action": 0.7,
     },
 }
 

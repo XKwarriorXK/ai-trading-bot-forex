@@ -72,40 +72,7 @@ class TradePipeline:
             except Exception as e:
                 logger.warning(f"Multi-TF failed for {instrument}: {e}")
 
-        # 5a. MA TREND DIRECTION — MA5 vs MA50 for market direction
-        ma_trend = "neutral"
-        if len(df) >= 50:
-            import ta as _ta_ma
-            close = df["close"]
-            ma_5 = _ta_ma.trend.ema_indicator(close, window=5)
-            ma_50 = _ta_ma.trend.ema_indicator(close, window=50)
-            if ma_5.iloc[-1] > ma_50.iloc[-1]:
-                ma_trend = "bullish"
-            elif ma_5.iloc[-1] < ma_50.iloc[-1]:
-                ma_trend = "bearish"
-            result["ma_trend"] = ma_trend
-
-        # 5b. 200 EMA TREND FILTER — only trade with the major trend
-        import ta as _ta
-        ema_200 = tech["indicators"].get("ema_200")
-        if ema_200 is None and len(df) >= 200:
-            ema_200 = _ta.trend.ema_indicator(df["close"], window=200).iloc[-1]
-        if ema_200:
-            price_now = float(df["close"].iloc[-1])
-            result["ema_200"] = ema_200
-
-        # 5c. ATR VOLATILITY FILTER — skip dead markets
-        atr_val = tech["indicators"].get("atr", 0)
-        if atr_val > 0 and len(df) >= 50:
-            atr_series = _ta.volatility.average_true_range(
-                df["high"], df["low"], df["close"], window=14)
-            avg_atr = atr_series.rolling(50).mean().iloc[-1]
-            if atr_val < avg_atr * 0.7:
-                result["reason"] = "ATR below 70% of 50-bar avg — dead market"
-                self._log_skip(instrument, result["reason"])
-                return result
-
-        # 6. STRATEGY ENSEMBLE — multiple strategies vote
+        # 6. STRATEGY ENSEMBLE — 7 proven strategies vote
         if self.strategy_selector:
             ensemble = self.strategy_selector.evaluate(df, regime)
         else:
@@ -117,65 +84,6 @@ class TradePipeline:
             result["reason"] = ensemble.get("reason", "No strategy agreement")
             self._log_skip(instrument, result["reason"])
             return result
-
-        # 200 EMA + MA TREND DIRECTION CHECK
-        if ema_200:
-            if ensemble["signal"] == "BUY" and price_now < ema_200:
-                result["reason"] = "BUY rejected: price below 200 EMA (bearish trend)"
-                self._log_skip(instrument, result["reason"])
-                return result
-            if ensemble["signal"] == "SELL" and price_now > ema_200:
-                result["reason"] = "SELL rejected: price above 200 EMA (bullish trend)"
-                self._log_skip(instrument, result["reason"])
-                return result
-        if ma_trend == "bullish" and ensemble["signal"] == "SELL":
-            result["reason"] = "SELL rejected: MA5 above MA50 (bullish market)"
-            self._log_skip(instrument, result["reason"])
-            return result
-        if ma_trend == "bearish" and ensemble["signal"] == "BUY":
-            result["reason"] = "BUY rejected: MA5 below MA50 (bearish market)"
-            self._log_skip(instrument, result["reason"])
-            return result
-
-        # PULLBACK FILTER — only enter on pullbacks to EMA, not extended moves
-        if len(df) >= 50:
-            ema_21 = _ta.trend.ema_indicator(df["close"], window=21).iloc[-1]
-            ema_50_val = _ta.trend.ema_indicator(df["close"], window=50).iloc[-1]
-            price_now_pb = float(df["close"].iloc[-1])
-            dist_to_ema21 = abs(price_now_pb - ema_21) / price_now_pb
-
-            if ensemble["signal"] == "BUY":
-                if price_now_pb > ema_21 and dist_to_ema21 > 0.004:
-                    result["reason"] = f"No pullback: price {dist_to_ema21:.1%} above EMA21"
-                    self._log_skip(instrument, result["reason"])
-                    return result
-            else:
-                if price_now_pb < ema_21 and dist_to_ema21 > 0.004:
-                    result["reason"] = f"No pullback: price {dist_to_ema21:.1%} below EMA21"
-                    self._log_skip(instrument, result["reason"])
-                    return result
-
-        # MA2/MA10 CROSSOVER — entry confirmation (momentum shift)
-        if len(df) >= 12:
-            ma_2 = _ta.trend.ema_indicator(df["close"], window=2)
-            ma_10 = _ta.trend.ema_indicator(df["close"], window=10)
-            crossed = False
-            for lookback in range(1, 6):
-                idx = -lookback
-                prev = idx - 1
-                if abs(prev) <= len(ma_2):
-                    if ensemble["signal"] == "BUY":
-                        if ma_2.iloc[idx] > ma_10.iloc[idx] and ma_2.iloc[prev] <= ma_10.iloc[prev]:
-                            crossed = True
-                            break
-                    else:
-                        if ma_2.iloc[idx] < ma_10.iloc[idx] and ma_2.iloc[prev] >= ma_10.iloc[prev]:
-                            crossed = True
-                            break
-            if not crossed:
-                result["reason"] = "No MA2/MA10 crossover — entry not confirmed"
-                self._log_skip(instrument, result["reason"])
-                return result
 
         confidence = ensemble["confidence"]
 

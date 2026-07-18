@@ -496,6 +496,83 @@ class SmartMoneyStrategy:
         }
 
 
+class PriceActionStrategy:
+    """Pin bars and engulfing patterns at key support/resistance levels."""
+    name = "price_action"
+
+    def evaluate(self, df, regime: str) -> dict:
+        if len(df) < 30:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 30 bars"}
+
+        curr = df.iloc[-1]
+        prev = df.iloc[-2]
+
+        curr_open = float(curr["open"])
+        curr_close = float(curr["close"])
+        curr_high = float(curr["high"])
+        curr_low = float(curr["low"])
+        curr_range = curr_high - curr_low
+
+        prev_open = float(prev["open"])
+        prev_close = float(prev["close"])
+
+        if curr_range == 0:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Zero range bar"}
+
+        curr_body = abs(curr_close - curr_open)
+        curr_upper_wick = curr_high - max(curr_open, curr_close)
+        curr_lower_wick = min(curr_open, curr_close) - curr_low
+
+        score = 0
+        reasons = []
+
+        # PIN BAR — long wick rejection
+        if curr_lower_wick > curr_range * 0.6 and curr_body < curr_range * 0.3:
+            score += 0.35
+            reasons.append("Bullish pin bar (lower wick rejection)")
+        elif curr_upper_wick > curr_range * 0.6 and curr_body < curr_range * 0.3:
+            score -= 0.35
+            reasons.append("Bearish pin bar (upper wick rejection)")
+
+        # ENGULFING PATTERN
+        if prev_close < prev_open and curr_close > curr_open:
+            if curr_close > prev_open and curr_open <= prev_close:
+                score += 0.30
+                reasons.append("Bullish engulfing pattern")
+        elif prev_close > prev_open and curr_close < curr_open:
+            if curr_close < prev_open and curr_open >= prev_close:
+                score -= 0.30
+                reasons.append("Bearish engulfing pattern")
+
+        # PATTERN AT KEY LEVEL amplifies signal
+        if abs(score) > 0:
+            atr = ta.volatility.average_true_range(
+                df["high"], df["low"], df["close"], window=14)
+            atr_val = float(atr.iloc[-1]) if not pd.isna(atr.iloc[-1]) else 0
+
+            if atr_val > 0:
+                recent_low = float(df["low"].iloc[-20:-2].min())
+                recent_high = float(df["high"].iloc[-20:-2].max())
+
+                if score > 0 and abs(curr_low - recent_low) < atr_val * 0.5:
+                    score += 0.15
+                    reasons.append("Pin/engulfing at support")
+                elif score < 0 and abs(curr_high - recent_high) < atr_val * 0.5:
+                    score -= 0.15
+                    reasons.append("Pin/engulfing at resistance")
+
+        if abs(score) < 0.25:
+            return {"signal": "SKIP", "confidence": 0, "reason": "No price action pattern"}
+
+        signal = "BUY" if score > 0 else "SELL"
+        return {
+            "signal": signal,
+            "confidence": min(abs(score), 0.95),
+            "reasons": reasons,
+            "strategy": self.name,
+        }
+
+
 ALL_STRATEGIES = [
     DonchianBreakoutStrategy(),
     LondonBreakoutStrategy(),
@@ -503,4 +580,5 @@ ALL_STRATEGIES = [
     MACDTrendStrategy(),
     IchimokuStrategy(),
     SmartMoneyStrategy(),
+    PriceActionStrategy(),
 ]
