@@ -130,6 +130,13 @@ class TradePipeline:
                 "regime": regime,
                 "indicators": tech.get("indicators", {}),
                 "reasons": ensemble.get("reasons", []),
+                "categories": ensemble.get("categories", []),
+                "num_categories": ensemble.get("num_categories", 0),
+                "agreeing_strategies": ensemble.get("agreeing_strategies", []),
+                "grade": ensemble.get("grade", "?"),
+                "structure": structure,
+                "session": result.get("session", []),
+                "news": news_risk,
             })
             verdict = debate_result.get("verdict", "SKIP")
             if verdict == "SKIP":
