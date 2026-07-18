@@ -1,76 +1,71 @@
 """
-Multi-Strategy Engine — each strategy votes independently.
-Strategies: Trend Following, Mean Reversion, Breakout, Momentum Scalp.
+Multi-Strategy Engine — 6 proven institutional strategies vote independently.
+Donchian Breakout, London Breakout, Bollinger+RSI, MACD+EMA, Ichimoku, Smart Money.
 """
 import logging
 import numpy as np
+import pandas as pd
 import ta
 
 logger = logging.getLogger(__name__)
 
 
-class TrendStrategy:
-    name = "trend_following"
+class DonchianBreakoutStrategy:
+    """Turtle Trading — buy 20-period high breakouts, sell 20-period low breakdowns."""
+    name = "donchian_breakout"
 
     def evaluate(self, df, regime: str) -> dict:
-        if len(df) < 200:
-            return {"signal": "SKIP", "confidence": 0, "reason": "Need 200 bars"}
+        if len(df) < 55:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 55 bars"}
 
         close = df["close"]
-        ema_9 = ta.trend.ema_indicator(close, window=9)
-        ema_21 = ta.trend.ema_indicator(close, window=21)
-        ema_50 = ta.trend.ema_indicator(close, window=50)
-        ema_200 = ta.trend.ema_indicator(close, window=200)
-        adx = ta.trend.adx(df["high"], df["low"], close, window=14)
-        macd_hist = ta.trend.macd_diff(close)
+        high = df["high"]
+        low = df["low"]
+
+        upper_20 = high.iloc[-21:-1].max()
+        lower_20 = low.iloc[-21:-1].min()
+        upper_55 = high.iloc[-56:-1].max() if len(df) >= 56 else upper_20
+        lower_55 = low.iloc[-56:-1].min() if len(df) >= 56 else lower_20
+
+        price = float(close.iloc[-1])
+        atr = ta.volatility.average_true_range(high, low, close, window=14)
+        atr_val = float(atr.iloc[-1]) if not pd.isna(atr.iloc[-1]) else 0
 
         score = 0
         reasons = []
 
-        # EMA alignment
-        if ema_9.iloc[-1] > ema_21.iloc[-1] > ema_50.iloc[-1]:
-            score += 0.20
-            reasons.append("Bullish EMA alignment")
-            if len(df) >= 200 and ema_9.iloc[-1] > ema_200.iloc[-1]:
-                score += 0.10
-                reasons.append("Above EMA200")
-        elif ema_9.iloc[-1] < ema_21.iloc[-1] < ema_50.iloc[-1]:
-            score -= 0.20
-            reasons.append("Bearish EMA alignment")
-            if len(df) >= 200 and ema_9.iloc[-1] < ema_200.iloc[-1]:
-                score -= 0.10
-                reasons.append("Below EMA200")
+        if price > upper_20:
+            score += 0.35
+            reasons.append("Broke 20-period high (Donchian)")
+            if price > upper_55:
+                score += 0.15
+                reasons.append("Also broke 55-period high")
+            if atr_val > 0:
+                dist = (price - upper_20) / atr_val
+                if dist > 0.5:
+                    score += 0.10
+                    reasons.append("Strong breakout (>0.5 ATR)")
+        elif price < lower_20:
+            score -= 0.35
+            reasons.append("Broke 20-period low (Donchian)")
+            if price < lower_55:
+                score -= 0.15
+                reasons.append("Also broke 55-period low")
+            if atr_val > 0:
+                dist = (lower_20 - price) / atr_val
+                if dist > 0.5:
+                    score -= 0.10
+                    reasons.append("Strong breakdown (>0.5 ATR)")
 
-        # EMA crossover
-        if ema_9.iloc[-1] > ema_21.iloc[-1] and ema_9.iloc[-2] <= ema_21.iloc[-2]:
-            score += 0.20
-            reasons.append("Bullish EMA cross")
-        elif ema_9.iloc[-1] < ema_21.iloc[-1] and ema_9.iloc[-2] >= ema_21.iloc[-2]:
-            score -= 0.20
-            reasons.append("Bearish EMA cross")
-
-        # ADX strength
-        if adx.iloc[-1] > 20:
-            score *= 1.2
-            reasons.append(f"Trend strength ADX={adx.iloc[-1]:.0f}")
-
-        # MACD confirmation
-        if macd_hist.iloc[-1] > 0 and score > 0:
-            score += 0.10
-        elif macd_hist.iloc[-1] < 0 and score < 0:
-            score -= 0.10
-
-        # Pullback to EMA (entry refinement)
-        price = close.iloc[-1]
-        if score > 0 and abs(price - ema_21.iloc[-1]) / price < 0.005:
-            score += 0.10
-            reasons.append("Price near EMA21 pullback")
-        elif score < 0 and abs(price - ema_21.iloc[-1]) / price < 0.005:
-            score -= 0.10
-            reasons.append("Price near EMA21 pullback")
+        if "volume" in df.columns and abs(score) > 0:
+            vol = df["volume"]
+            avg_vol = vol.rolling(20).mean().iloc[-1]
+            if avg_vol > 0 and vol.iloc[-1] > avg_vol * 1.3:
+                score *= 1.2
+                reasons.append("Volume confirms breakout")
 
         if abs(score) < 0.25:
-            return {"signal": "SKIP", "confidence": 0, "reason": "Weak trend signal"}
+            return {"signal": "SKIP", "confidence": 0, "reason": "No Donchian breakout"}
 
         signal = "BUY" if score > 0 else "SELL"
         return {
@@ -81,8 +76,74 @@ class TrendStrategy:
         }
 
 
-class MeanReversionStrategy:
-    name = "mean_reversion"
+class LondonBreakoutStrategy:
+    """Trade the Asian session range breakout at London open."""
+    name = "london_breakout"
+
+    def evaluate(self, df, regime: str) -> dict:
+        if len(df) < 20:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 20 bars"}
+
+        try:
+            hour = df.index[-1].hour
+        except AttributeError:
+            return {"signal": "SKIP", "confidence": 0, "reason": "No timestamp"}
+
+        if hour < 7 or hour > 10:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Outside London window"}
+
+        asian_bars = df[df.index.hour < 7].tail(7)
+        if len(asian_bars) < 3:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Not enough Asian data"}
+
+        asian_high = float(asian_bars["high"].max())
+        asian_low = float(asian_bars["low"].min())
+        asian_range = asian_high - asian_low
+
+        if asian_range <= 0:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Zero Asian range"}
+
+        price = float(df["close"].iloc[-1])
+
+        score = 0
+        reasons = []
+
+        if price > asian_high:
+            score += 0.35
+            reasons.append("Broke Asian high at London open")
+            strength = (price - asian_high) / asian_range
+            if strength > 0.3:
+                score += 0.15
+                reasons.append(f"Strong breakout ({strength:.0%} of range)")
+            if hour <= 8:
+                score += 0.10
+                reasons.append("Early London — peak liquidity")
+        elif price < asian_low:
+            score -= 0.35
+            reasons.append("Broke Asian low at London open")
+            strength = (asian_low - price) / asian_range
+            if strength > 0.3:
+                score -= 0.15
+                reasons.append(f"Strong breakdown ({strength:.0%} of range)")
+            if hour <= 8:
+                score -= 0.10
+                reasons.append("Early London — peak liquidity")
+
+        if abs(score) < 0.25:
+            return {"signal": "SKIP", "confidence": 0, "reason": "No London breakout"}
+
+        signal = "BUY" if score > 0 else "SELL"
+        return {
+            "signal": signal,
+            "confidence": min(abs(score), 0.95),
+            "reasons": reasons,
+            "strategy": self.name,
+        }
+
+
+class BollingerRSIStrategy:
+    """Mean reversion — Bollinger Band touch + RSI extremes with trend confirmation."""
+    name = "bollinger_rsi"
 
     def evaluate(self, df, regime: str) -> dict:
         if len(df) < 50:
@@ -91,51 +152,54 @@ class MeanReversionStrategy:
         close = df["close"]
         rsi = ta.momentum.rsi(close, window=14)
         bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
+        ema_50 = ta.trend.ema_indicator(close, window=50)
         stoch = ta.momentum.stoch(df["high"], df["low"], close, window=14, smooth_window=3)
+
+        if pd.isna(rsi.iloc[-1]) or pd.isna(bb.bollinger_lband().iloc[-1]):
+            return {"signal": "SKIP", "confidence": 0, "reason": "Indicators not ready"}
+
+        price = float(close.iloc[-1])
+        bb_lower = float(bb.bollinger_lband().iloc[-1])
+        bb_upper = float(bb.bollinger_hband().iloc[-1])
 
         score = 0
         reasons = []
 
-        # RSI extremes
-        if rsi.iloc[-1] < 30:
-            score += 0.30
-            reasons.append(f"RSI oversold ({rsi.iloc[-1]:.0f})")
-        elif rsi.iloc[-1] < 40:
-            score += 0.15
-            reasons.append(f"RSI low ({rsi.iloc[-1]:.0f})")
-        elif rsi.iloc[-1] > 70:
-            score -= 0.30
-            reasons.append(f"RSI overbought ({rsi.iloc[-1]:.0f})")
-        elif rsi.iloc[-1] > 60:
-            score -= 0.15
-            reasons.append(f"RSI high ({rsi.iloc[-1]:.0f})")
+        if price <= bb_lower and rsi.iloc[-1] < 35:
+            score += 0.40
+            reasons.append(f"Price at lower BB + RSI {rsi.iloc[-1]:.0f}")
+            if price > ema_50.iloc[-1]:
+                score += 0.15
+                reasons.append("In uptrend (above EMA50) — bounce likely")
+        elif price >= bb_upper and rsi.iloc[-1] > 65:
+            score -= 0.40
+            reasons.append(f"Price at upper BB + RSI {rsi.iloc[-1]:.0f}")
+            if price < ema_50.iloc[-1]:
+                score -= 0.15
+                reasons.append("In downtrend (below EMA50) — rejection likely")
 
-        # Bollinger Band touch
-        price = close.iloc[-1]
-        bb_mid = bb.bollinger_mavg().iloc[-1]
-        if price <= bb.bollinger_lband().iloc[-1]:
-            score += 0.25
-            reasons.append("At lower Bollinger Band")
-        elif price < bb_mid and price - bb.bollinger_lband().iloc[-1] < (bb_mid - bb.bollinger_lband().iloc[-1]) * 0.3:
-            score += 0.10
-            reasons.append("Near lower Bollinger Band")
-        elif price >= bb.bollinger_hband().iloc[-1]:
-            score -= 0.25
-            reasons.append("At upper Bollinger Band")
-        elif price > bb_mid and bb.bollinger_hband().iloc[-1] - price < (bb.bollinger_hband().iloc[-1] - bb_mid) * 0.3:
-            score -= 0.10
-            reasons.append("Near upper Bollinger Band")
+        if not pd.isna(stoch.iloc[-1]):
+            if score > 0 and stoch.iloc[-1] < 25:
+                score += 0.10
+                reasons.append("Stochastic confirms oversold")
+            elif score < 0 and stoch.iloc[-1] > 75:
+                score -= 0.10
+                reasons.append("Stochastic confirms overbought")
 
-        # Stochastic
-        if stoch.iloc[-1] < 25:
-            score += 0.15
-            reasons.append("Stochastic oversold")
-        elif stoch.iloc[-1] > 75:
-            score -= 0.15
-            reasons.append("Stochastic overbought")
+        # RSI divergence
+        if abs(score) > 0 and len(df) >= 15:
+            rsi_window = rsi.iloc[-10:]
+            if score > 0:
+                if rsi.iloc[-1] > rsi_window.min() and close.iloc[-1] <= close.iloc[-10:].min():
+                    score += 0.10
+                    reasons.append("Bullish RSI divergence")
+            else:
+                if rsi.iloc[-1] < rsi_window.max() and close.iloc[-1] >= close.iloc[-10:].max():
+                    score -= 0.10
+                    reasons.append("Bearish RSI divergence")
 
         if abs(score) < 0.30:
-            return {"signal": "SKIP", "confidence": 0, "reason": "Weak mean reversion signal"}
+            return {"signal": "SKIP", "confidence": 0, "reason": "No BB+RSI setup"}
 
         signal = "BUY" if score > 0 else "SELL"
         return {
@@ -146,8 +210,184 @@ class MeanReversionStrategy:
         }
 
 
-class BreakoutStrategy:
-    name = "breakout"
+class MACDTrendStrategy:
+    """MACD signal line crossover confirmed by EMA trend."""
+    name = "macd_trend"
+
+    def evaluate(self, df, regime: str) -> dict:
+        if len(df) < 50:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 50 bars"}
+
+        close = df["close"]
+        macd_line = ta.trend.macd(close)
+        macd_signal = ta.trend.macd_signal(close)
+        macd_hist = ta.trend.macd_diff(close)
+        ema_50 = ta.trend.ema_indicator(close, window=50)
+        ema_21 = ta.trend.ema_indicator(close, window=21)
+
+        if pd.isna(macd_line.iloc[-1]) or pd.isna(macd_signal.iloc[-1]):
+            return {"signal": "SKIP", "confidence": 0, "reason": "MACD not ready"}
+
+        price = float(close.iloc[-1])
+
+        macd_crossed_up = False
+        macd_crossed_down = False
+        for i in range(1, 5):
+            if len(macd_line) <= i:
+                break
+            if (macd_line.iloc[-i] > macd_signal.iloc[-i] and
+                    macd_line.iloc[-i - 1] <= macd_signal.iloc[-i - 1]):
+                macd_crossed_up = True
+                break
+            elif (macd_line.iloc[-i] < macd_signal.iloc[-i] and
+                  macd_line.iloc[-i - 1] >= macd_signal.iloc[-i - 1]):
+                macd_crossed_down = True
+                break
+
+        score = 0
+        reasons = []
+
+        if macd_crossed_up:
+            score += 0.30
+            reasons.append("MACD bullish crossover")
+            if price > ema_50.iloc[-1]:
+                score += 0.15
+                reasons.append("Above EMA50 (uptrend)")
+            if price > ema_21.iloc[-1]:
+                score += 0.10
+                reasons.append("Above EMA21")
+            if macd_hist.iloc[-1] > macd_hist.iloc[-2]:
+                score += 0.10
+                reasons.append("MACD histogram accelerating")
+            if macd_line.iloc[-1] > 0 and len(macd_line) > 4 and macd_line.iloc[-4] < 0:
+                score += 0.10
+                reasons.append("MACD crossed zero line")
+        elif macd_crossed_down:
+            score -= 0.30
+            reasons.append("MACD bearish crossover")
+            if price < ema_50.iloc[-1]:
+                score -= 0.15
+                reasons.append("Below EMA50 (downtrend)")
+            if price < ema_21.iloc[-1]:
+                score -= 0.10
+                reasons.append("Below EMA21")
+            if macd_hist.iloc[-1] < macd_hist.iloc[-2]:
+                score -= 0.10
+                reasons.append("MACD histogram accelerating down")
+            if macd_line.iloc[-1] < 0 and len(macd_line) > 4 and macd_line.iloc[-4] > 0:
+                score -= 0.10
+                reasons.append("MACD crossed below zero")
+
+        if abs(score) < 0.25:
+            return {"signal": "SKIP", "confidence": 0, "reason": "No MACD setup"}
+
+        signal = "BUY" if score > 0 else "SELL"
+        return {
+            "signal": signal,
+            "confidence": min(abs(score), 0.95),
+            "reasons": reasons,
+            "strategy": self.name,
+        }
+
+
+class IchimokuStrategy:
+    """Ichimoku Cloud — all 5 components must align for a signal."""
+    name = "ichimoku"
+
+    def evaluate(self, df, regime: str) -> dict:
+        if len(df) < 80:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 80 bars"}
+
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+
+        ich = ta.trend.IchimokuIndicator(high, low, window1=9, window2=26, window3=52)
+        tenkan = ich.ichimoku_conversion_line()
+        kijun = ich.ichimoku_base_line()
+        span_a = ich.ichimoku_a()
+        span_b = ich.ichimoku_b()
+
+        if pd.isna(tenkan.iloc[-1]) or pd.isna(span_a.iloc[-1]) or pd.isna(span_b.iloc[-1]):
+            return {"signal": "SKIP", "confidence": 0, "reason": "Ichimoku not ready"}
+
+        price = float(close.iloc[-1])
+        cloud_top = float(max(span_a.iloc[-1], span_b.iloc[-1]))
+        cloud_bottom = float(min(span_a.iloc[-1], span_b.iloc[-1]))
+
+        score = 0
+        reasons = []
+
+        if price > cloud_top:
+            score += 0.20
+            reasons.append("Price above Ichimoku cloud")
+        elif price < cloud_bottom:
+            score -= 0.20
+            reasons.append("Price below Ichimoku cloud")
+        else:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Price inside cloud"}
+
+        # Tenkan/Kijun cross
+        tk_cross_up = False
+        tk_cross_down = False
+        for i in range(1, 5):
+            if len(tenkan) <= i:
+                break
+            if (tenkan.iloc[-i] > kijun.iloc[-i] and
+                    tenkan.iloc[-i - 1] <= kijun.iloc[-i - 1]):
+                tk_cross_up = True
+                break
+            elif (tenkan.iloc[-i] < kijun.iloc[-i] and
+                  tenkan.iloc[-i - 1] >= kijun.iloc[-i - 1]):
+                tk_cross_down = True
+                break
+
+        if tk_cross_up and score > 0:
+            score += 0.25
+            reasons.append("Tenkan crossed above Kijun")
+        elif tk_cross_down and score < 0:
+            score -= 0.25
+            reasons.append("Tenkan crossed below Kijun")
+        elif tenkan.iloc[-1] > kijun.iloc[-1] and score > 0:
+            score += 0.10
+            reasons.append("Tenkan above Kijun")
+        elif tenkan.iloc[-1] < kijun.iloc[-1] and score < 0:
+            score -= 0.10
+            reasons.append("Tenkan below Kijun")
+
+        cloud_bullish = span_a.iloc[-1] > span_b.iloc[-1]
+        if cloud_bullish and score > 0:
+            score += 0.10
+            reasons.append("Bullish cloud color")
+        elif not cloud_bullish and score < 0:
+            score -= 0.10
+            reasons.append("Bearish cloud color")
+
+        # Chikou confirmation (current price vs 26 bars ago)
+        if len(close) >= 27:
+            price_26_ago = float(close.iloc[-27])
+            if price > price_26_ago and score > 0:
+                score += 0.10
+                reasons.append("Chikou confirms bullish")
+            elif price < price_26_ago and score < 0:
+                score -= 0.10
+                reasons.append("Chikou confirms bearish")
+
+        if abs(score) < 0.25:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Weak Ichimoku signal"}
+
+        signal = "BUY" if score > 0 else "SELL"
+        return {
+            "signal": signal,
+            "confidence": min(abs(score), 0.95),
+            "reasons": reasons,
+            "strategy": self.name,
+        }
+
+
+class SmartMoneyStrategy:
+    """Smart Money Concepts — order blocks, fair value gaps, liquidity sweeps."""
+    name = "smart_money"
 
     def evaluate(self, df, regime: str) -> dict:
         if len(df) < 50:
@@ -156,123 +396,96 @@ class BreakoutStrategy:
         close = df["close"]
         high = df["high"]
         low = df["low"]
+        open_ = df["open"]
+
+        price = float(close.iloc[-1])
         atr = ta.volatility.average_true_range(high, low, close, window=14)
-        bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
-        bb_width = bb.bollinger_wband()
 
         score = 0
         reasons = []
 
-        # Bollinger squeeze detection (compression before breakout)
-        avg_width = bb_width.rolling(50).mean().iloc[-1]
-        current_width = bb_width.iloc[-1]
-        is_squeezed = current_width < avg_width * 0.75
+        # 1. FAIR VALUE GAP — unfilled gaps from impulse moves
+        for i in range(2, min(20, len(df) - 2)):
+            idx1 = len(df) - i - 2
+            idx3 = len(df) - i
+            if idx1 < 0:
+                break
 
-        # Price range — exclude current bar so breakout can actually fire
-        lookback_high = high.iloc[-21:-1].max()
-        lookback_low = low.iloc[-21:-1].min()
+            bar1_high = float(high.iloc[idx1])
+            bar3_low = float(low.iloc[idx3])
+            bar1_low = float(low.iloc[idx1])
+            bar3_high = float(high.iloc[idx3])
 
-        price = close.iloc[-1]
+            if bar1_high < bar3_low:
+                fvg_bottom = bar1_high
+                fvg_top = bar3_low
+                if fvg_bottom <= price <= fvg_top:
+                    score += 0.25
+                    reasons.append(f"Price at bullish FVG ({i} bars back)")
+                    break
 
-        # Breakout above recent range
-        if price > lookback_high and is_squeezed:
-            score += 0.40
-            reasons.append("Breakout above range after squeeze")
-        elif price > lookback_high:
-            score += 0.25
-            reasons.append("Breakout above 20-bar high")
+            if bar1_low > bar3_high:
+                fvg_top = bar1_low
+                fvg_bottom = bar3_high
+                if fvg_bottom <= price <= fvg_top:
+                    score -= 0.25
+                    reasons.append(f"Price at bearish FVG ({i} bars back)")
+                    break
 
-        # Breakdown below recent range
-        if price < lookback_low and is_squeezed:
-            score -= 0.40
-            reasons.append("Breakdown below range after squeeze")
-        elif price < lookback_low:
-            score -= 0.25
-            reasons.append("Breakdown below 20-bar low")
+        # 2. ORDER BLOCKS — institutional entry zones
+        for i in range(5, min(30, len(df) - 3)):
+            idx = len(df) - i
+            if idx < 0:
+                break
 
-        # Close near high/low of bar confirms conviction
-        bar_range = high.iloc[-1] - low.iloc[-1]
-        if bar_range > 0:
-            if score > 0 and (price - low.iloc[-1]) / bar_range > 0.7:
-                score += 0.10
-                reasons.append("Closing near bar high")
-            elif score < 0 and (high.iloc[-1] - price) / bar_range > 0.7:
-                score -= 0.10
-                reasons.append("Closing near bar low")
+            candle_open = float(open_.iloc[idx])
+            candle_close = float(close.iloc[idx])
+            candle_high = float(high.iloc[idx])
+            candle_low = float(low.iloc[idx])
+            is_bearish = candle_close < candle_open
+            is_bullish = candle_close > candle_open
 
-        # Volume confirmation (if available)
-        if "volume" in df.columns:
-            vol = df["volume"]
-            avg_vol = vol.rolling(20).mean().iloc[-1]
-            if vol.iloc[-1] > avg_vol * 1.5:
-                score *= 1.3
-                reasons.append("Volume expansion confirms breakout")
+            start = idx + 1
+            end = min(start + 3, len(df))
+            following = df.iloc[start:end]
+            if len(following) < 2:
+                continue
 
-        # ATR expansion
-        avg_atr = atr.rolling(20).mean().iloc[-1]
-        if atr.iloc[-1] > avg_atr * 1.3:
-            score *= 1.2
-            reasons.append("ATR expanding")
+            atr_val = float(atr.iloc[idx]) if not pd.isna(atr.iloc[idx]) else float(atr.iloc[-1])
+
+            if is_bearish:
+                move_up = float(following["close"].max()) - candle_low
+                if move_up > atr_val * 2.0:
+                    body_top = candle_open
+                    body_bottom = candle_close
+                    if body_bottom <= price <= body_top:
+                        score += 0.30
+                        reasons.append(f"Bullish order block ({i} bars ago)")
+                        break
+
+            if is_bullish:
+                move_down = candle_high - float(following["close"].min())
+                if move_down > atr_val * 2.0:
+                    body_top = candle_close
+                    body_bottom = candle_open
+                    if body_bottom <= price <= body_top:
+                        score -= 0.30
+                        reasons.append(f"Bearish order block ({i} bars ago)")
+                        break
+
+        # 3. LIQUIDITY SWEEP — stop hunt then reversal
+        recent_low = float(low.iloc[-20:-1].min())
+        recent_high = float(high.iloc[-20:-1].max())
+
+        if float(low.iloc[-1]) < recent_low and price > recent_low:
+            score += 0.20
+            reasons.append("Liquidity sweep below recent low — bullish reversal")
+        elif float(high.iloc[-1]) > recent_high and price < recent_high:
+            score -= 0.20
+            reasons.append("Liquidity sweep above recent high — bearish reversal")
 
         if abs(score) < 0.25:
-            return {"signal": "SKIP", "confidence": 0, "reason": "No breakout detected"}
-
-        signal = "BUY" if score > 0 else "SELL"
-        return {
-            "signal": signal,
-            "confidence": min(abs(score), 0.95),
-            "reasons": reasons,
-            "strategy": self.name,
-        }
-
-
-class MomentumStrategy:
-    name = "momentum"
-
-    def evaluate(self, df, regime: str) -> dict:
-        if len(df) < 50:
-            return {"signal": "SKIP", "confidence": 0, "reason": "Need 50 bars"}
-
-        close = df["close"]
-        rsi = ta.momentum.rsi(close, window=14)
-        macd_hist = ta.trend.macd_diff(close)
-        adx = ta.trend.adx(df["high"], df["low"], close, window=14)
-        roc = ta.momentum.roc(close, window=10)
-
-        score = 0
-        reasons = []
-
-        # RSI momentum (not extreme, but moving)
-        if 45 < rsi.iloc[-1] < 70 and rsi.iloc[-1] > rsi.iloc[-2]:
-            score += 0.20
-            reasons.append("Bullish RSI momentum")
-        elif 30 < rsi.iloc[-1] < 55 and rsi.iloc[-1] < rsi.iloc[-2]:
-            score -= 0.20
-            reasons.append("Bearish RSI momentum")
-
-        # MACD momentum
-        if macd_hist.iloc[-1] > macd_hist.iloc[-2] > macd_hist.iloc[-3]:
-            score += 0.20
-            reasons.append("MACD histogram accelerating up")
-        elif macd_hist.iloc[-1] < macd_hist.iloc[-2] < macd_hist.iloc[-3]:
-            score -= 0.20
-            reasons.append("MACD histogram accelerating down")
-
-        # Rate of change
-        if roc.iloc[-1] > 0.15:
-            score += 0.15
-            reasons.append(f"Positive ROC ({roc.iloc[-1]:.2f}%)")
-        elif roc.iloc[-1] < -0.15:
-            score -= 0.15
-            reasons.append(f"Negative ROC ({roc.iloc[-1]:.2f}%)")
-
-        # ADX confirms directional movement
-        if adx.iloc[-1] > 18:
-            score *= 1.2
-            reasons.append(f"Directional strength ADX={adx.iloc[-1]:.0f}")
-
-        if abs(score) < 0.25:
-            return {"signal": "SKIP", "confidence": 0, "reason": "Weak momentum"}
+            return {"signal": "SKIP", "confidence": 0, "reason": "No Smart Money setup"}
 
         signal = "BUY" if score > 0 else "SELL"
         return {
@@ -284,8 +497,10 @@ class MomentumStrategy:
 
 
 ALL_STRATEGIES = [
-    TrendStrategy(),
-    MeanReversionStrategy(),
-    BreakoutStrategy(),
-    MomentumStrategy(),
+    DonchianBreakoutStrategy(),
+    LondonBreakoutStrategy(),
+    BollingerRSIStrategy(),
+    MACDTrendStrategy(),
+    IchimokuStrategy(),
+    SmartMoneyStrategy(),
 ]

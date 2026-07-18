@@ -1,6 +1,6 @@
 """
 Strategy Selector — picks best strategy based on market regime.
-Multiple strategies vote, selector weights by regime fitness.
+6 proven strategies vote, selector weights by regime fitness.
 """
 import logging
 from strategy.strategies import ALL_STRATEGIES
@@ -9,28 +9,36 @@ logger = logging.getLogger(__name__)
 
 REGIME_WEIGHTS = {
     "trending": {
-        "trend_following": 1.0,
-        "momentum": 0.8,
-        "breakout": 0.5,
-        "mean_reversion": 0.1,
+        "donchian_breakout": 0.9,
+        "london_breakout": 0.7,
+        "bollinger_rsi": 0.2,
+        "macd_trend": 1.0,
+        "ichimoku": 0.9,
+        "smart_money": 0.6,
     },
     "ranging": {
-        "mean_reversion": 1.0,
-        "breakout": 0.3,
-        "momentum": 0.2,
-        "trend_following": 0.1,
+        "donchian_breakout": 0.2,
+        "london_breakout": 0.5,
+        "bollinger_rsi": 1.0,
+        "macd_trend": 0.3,
+        "ichimoku": 0.4,
+        "smart_money": 0.8,
     },
     "volatile": {
-        "breakout": 0.8,
-        "momentum": 0.6,
-        "trend_following": 0.3,
-        "mean_reversion": 0.2,
+        "donchian_breakout": 0.7,
+        "london_breakout": 0.8,
+        "bollinger_rsi": 0.4,
+        "macd_trend": 0.5,
+        "ichimoku": 0.5,
+        "smart_money": 0.7,
     },
     "transitioning": {
-        "momentum": 0.7,
-        "breakout": 0.6,
-        "trend_following": 0.5,
-        "mean_reversion": 0.5,
+        "donchian_breakout": 0.5,
+        "london_breakout": 0.6,
+        "bollinger_rsi": 0.6,
+        "macd_trend": 0.6,
+        "ichimoku": 0.6,
+        "smart_money": 0.7,
     },
 }
 
