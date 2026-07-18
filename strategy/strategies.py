@@ -1,6 +1,7 @@
 """
-Multi-Strategy Engine — 6 proven institutional strategies vote independently.
-Donchian Breakout, London Breakout, Bollinger+RSI, MACD+EMA, Ichimoku, Smart Money.
+Multi-Strategy Engine — 11 proven institutional strategies vote independently.
+Donchian, London, Bollinger+RSI, MACD+EMA, Ichimoku, Smart Money, Price Action,
+Keltner Channel, ADX Momentum, Fibonacci Retracement, Stochastic Divergence.
 """
 import logging
 import numpy as np
@@ -573,6 +574,343 @@ class PriceActionStrategy:
         }
 
 
+class KeltnerChannelStrategy:
+    """Keltner Channel — ATR-based volatility channels for breakout/mean-reversion."""
+    name = "keltner_channel"
+
+    def evaluate(self, df, regime: str) -> dict:
+        if len(df) < 50:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 50 bars"}
+
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+
+        ema_20 = ta.trend.ema_indicator(close, window=20)
+        atr = ta.volatility.average_true_range(high, low, close, window=10)
+
+        if pd.isna(ema_20.iloc[-1]) or pd.isna(atr.iloc[-1]):
+            return {"signal": "SKIP", "confidence": 0, "reason": "Keltner not ready"}
+
+        atr_val = float(atr.iloc[-1])
+        mid = float(ema_20.iloc[-1])
+        upper = mid + atr_val * 2.0
+        lower = mid - atr_val * 2.0
+        price = float(close.iloc[-1])
+        prev_price = float(close.iloc[-2])
+
+        score = 0
+        reasons = []
+
+        if price > upper and prev_price <= upper:
+            score += 0.40
+            reasons.append("Keltner upper channel breakout")
+            if float(close.iloc[-2]) > mid:
+                score += 0.10
+                reasons.append("Was already above midline — momentum")
+        elif price < lower and prev_price >= lower:
+            score -= 0.40
+            reasons.append("Keltner lower channel breakdown")
+            if float(close.iloc[-2]) < mid:
+                score -= 0.10
+                reasons.append("Was already below midline — momentum")
+
+        if regime == "ranging" and abs(score) == 0:
+            if price <= lower * 1.001:
+                score += 0.35
+                reasons.append("Keltner lower touch in range — mean reversion buy")
+            elif price >= upper * 0.999:
+                score -= 0.35
+                reasons.append("Keltner upper touch in range — mean reversion sell")
+
+        if abs(score) > 0 and "volume" in df.columns:
+            vol = df["volume"]
+            avg_vol = vol.rolling(20).mean().iloc[-1]
+            if avg_vol > 0 and vol.iloc[-1] > avg_vol * 1.3:
+                score *= 1.15
+                reasons.append("Volume confirms Keltner signal")
+
+        if abs(score) < 0.30:
+            return {"signal": "SKIP", "confidence": 0, "reason": "No Keltner setup"}
+
+        signal = "BUY" if score > 0 else "SELL"
+        return {
+            "signal": signal,
+            "confidence": min(abs(score), 0.95),
+            "reasons": reasons,
+            "strategy": self.name,
+        }
+
+
+class ADXMomentumStrategy:
+    """ADX trend strength + DI+/DI- crossovers for directional trades."""
+    name = "adx_momentum"
+
+    def evaluate(self, df, regime: str) -> dict:
+        if len(df) < 50:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 50 bars"}
+
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+
+        adx = ta.trend.adx(high, low, close, window=14)
+        di_pos = ta.trend.adx_pos(high, low, close, window=14)
+        di_neg = ta.trend.adx_neg(high, low, close, window=14)
+
+        if pd.isna(adx.iloc[-1]) or pd.isna(di_pos.iloc[-1]):
+            return {"signal": "SKIP", "confidence": 0, "reason": "ADX not ready"}
+
+        adx_val = float(adx.iloc[-1])
+        di_p = float(di_pos.iloc[-1])
+        di_n = float(di_neg.iloc[-1])
+
+        score = 0
+        reasons = []
+
+        if adx_val < 20:
+            return {"signal": "SKIP", "confidence": 0, "reason": f"ADX {adx_val:.0f} — no trend"}
+
+        di_cross_up = False
+        di_cross_down = False
+        for i in range(1, 5):
+            if len(di_pos) <= i:
+                break
+            if (di_pos.iloc[-i] > di_neg.iloc[-i] and
+                    di_pos.iloc[-i - 1] <= di_neg.iloc[-i - 1]):
+                di_cross_up = True
+                break
+            elif (di_neg.iloc[-i] > di_pos.iloc[-i] and
+                  di_neg.iloc[-i - 1] <= di_pos.iloc[-i - 1]):
+                di_cross_down = True
+                break
+
+        if di_cross_up or (di_p > di_n and di_p - di_n > 5):
+            base = 0.35 if di_cross_up else 0.25
+            score += base
+            reasons.append(f"DI+ above DI- {'(crossover)' if di_cross_up else ''}, ADX {adx_val:.0f}")
+            if adx_val > 30:
+                score += 0.10
+                reasons.append("Strong trend (ADX > 30)")
+            if adx_val > 40:
+                score += 0.10
+                reasons.append("Very strong trend (ADX > 40)")
+            if len(adx) > 3 and adx.iloc[-1] > adx.iloc[-3]:
+                score += 0.10
+                reasons.append("ADX rising — trend strengthening")
+
+        elif di_cross_down or (di_n > di_p and di_n - di_p > 5):
+            base = 0.35 if di_cross_down else 0.25
+            score -= base
+            reasons.append(f"DI- above DI+ {'(crossover)' if di_cross_down else ''}, ADX {adx_val:.0f}")
+            if adx_val > 30:
+                score -= 0.10
+                reasons.append("Strong trend (ADX > 30)")
+            if adx_val > 40:
+                score -= 0.10
+                reasons.append("Very strong trend (ADX > 40)")
+            if len(adx) > 3 and adx.iloc[-1] > adx.iloc[-3]:
+                score -= 0.10
+                reasons.append("ADX rising — trend strengthening")
+
+        if abs(score) < 0.25:
+            return {"signal": "SKIP", "confidence": 0, "reason": "No ADX setup"}
+
+        signal = "BUY" if score > 0 else "SELL"
+        return {
+            "signal": signal,
+            "confidence": min(abs(score), 0.95),
+            "reasons": reasons,
+            "strategy": self.name,
+        }
+
+
+class FibonacciRetracementStrategy:
+    """Fibonacci retracement — entries at 38.2%, 50%, 61.8% pullback levels."""
+    name = "fibonacci_retracement"
+
+    def evaluate(self, df, regime: str) -> dict:
+        if len(df) < 50:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 50 bars"}
+
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+        price = float(close.iloc[-1])
+
+        ema_50 = ta.trend.ema_indicator(close, window=50)
+        atr = ta.volatility.average_true_range(high, low, close, window=14)
+
+        if pd.isna(ema_50.iloc[-1]) or pd.isna(atr.iloc[-1]):
+            return {"signal": "SKIP", "confidence": 0, "reason": "Fib not ready"}
+
+        atr_val = float(atr.iloc[-1])
+        trend_up = price > float(ema_50.iloc[-1])
+
+        swing_high_idx = int(high.iloc[-50:].idxmax() if hasattr(high.iloc[-50:].idxmax(), '__int__') else high.iloc[-50:].values.argmax())
+        swing_low_idx = int(low.iloc[-50:].idxmin() if hasattr(low.iloc[-50:].idxmin(), '__int__') else low.iloc[-50:].values.argmin())
+
+        swing_high = float(high.iloc[-50:].max())
+        swing_low = float(low.iloc[-50:].min())
+        swing_range = swing_high - swing_low
+
+        if swing_range < atr_val * 2:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Swing range too small"}
+
+        fib_382 = swing_high - swing_range * 0.382
+        fib_500 = swing_high - swing_range * 0.500
+        fib_618 = swing_high - swing_range * 0.618
+
+        tolerance = atr_val * 0.3
+
+        score = 0
+        reasons = []
+
+        if trend_up:
+            if abs(price - fib_618) < tolerance:
+                score += 0.45
+                reasons.append("Price at 61.8% Fibonacci (golden ratio)")
+            elif abs(price - fib_500) < tolerance:
+                score += 0.40
+                reasons.append("Price at 50% Fibonacci retracement")
+            elif abs(price - fib_382) < tolerance:
+                score += 0.35
+                reasons.append("Price at 38.2% Fibonacci retracement")
+
+            if score > 0:
+                if float(close.iloc[-1]) > float(close.iloc[-2]):
+                    score += 0.10
+                    reasons.append("Price bouncing off Fib level")
+                rsi = ta.momentum.rsi(close, window=14)
+                if not pd.isna(rsi.iloc[-1]) and rsi.iloc[-1] < 45:
+                    score += 0.10
+                    reasons.append("RSI confirms pullback (not overbought)")
+        else:
+            inv_382 = swing_low + swing_range * 0.382
+            inv_500 = swing_low + swing_range * 0.500
+            inv_618 = swing_low + swing_range * 0.618
+
+            if abs(price - inv_618) < tolerance:
+                score -= 0.45
+                reasons.append("Price at 61.8% Fibonacci (golden ratio)")
+            elif abs(price - inv_500) < tolerance:
+                score -= 0.40
+                reasons.append("Price at 50% Fibonacci retracement")
+            elif abs(price - inv_382) < tolerance:
+                score -= 0.35
+                reasons.append("Price at 38.2% Fibonacci retracement")
+
+            if score < 0:
+                if float(close.iloc[-1]) < float(close.iloc[-2]):
+                    score -= 0.10
+                    reasons.append("Price rejecting off Fib level")
+                rsi = ta.momentum.rsi(close, window=14)
+                if not pd.isna(rsi.iloc[-1]) and rsi.iloc[-1] > 55:
+                    score -= 0.10
+                    reasons.append("RSI confirms pullback (not oversold)")
+
+        if abs(score) < 0.30:
+            return {"signal": "SKIP", "confidence": 0, "reason": "No Fibonacci setup"}
+
+        signal = "BUY" if score > 0 else "SELL"
+        return {
+            "signal": signal,
+            "confidence": min(abs(score), 0.95),
+            "reasons": reasons,
+            "strategy": self.name,
+        }
+
+
+class StochasticDivergenceStrategy:
+    """Stochastic divergence — price vs stochastic disagreement for reversals."""
+    name = "stochastic_divergence"
+
+    def evaluate(self, df, regime: str) -> dict:
+        if len(df) < 50:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 50 bars"}
+
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+
+        stoch_k = ta.momentum.stoch(high, low, close, window=14, smooth_window=3)
+        stoch_d = ta.momentum.stoch_signal(high, low, close, window=14, smooth_window=3)
+
+        if pd.isna(stoch_k.iloc[-1]) or pd.isna(stoch_d.iloc[-1]):
+            return {"signal": "SKIP", "confidence": 0, "reason": "Stochastic not ready"}
+
+        score = 0
+        reasons = []
+
+        lookback = 20
+        if len(close) >= lookback and len(stoch_k) >= lookback:
+            price_slice = close.iloc[-lookback:]
+            stoch_slice = stoch_k.iloc[-lookback:]
+
+            price_low1_idx = price_slice.iloc[:lookback // 2].idxmin() if hasattr(price_slice.iloc[:lookback // 2].idxmin(), '__int__') else 0
+            price_low2 = float(price_slice.iloc[-5:].min())
+            price_low1 = float(price_slice.iloc[:lookback // 2].min())
+
+            stoch_low1 = float(stoch_slice.iloc[:lookback // 2].min())
+            stoch_low2 = float(stoch_slice.iloc[-5:].min())
+
+            price_high1 = float(price_slice.iloc[:lookback // 2].max())
+            price_high2 = float(price_slice.iloc[-5:].max())
+
+            stoch_high1 = float(stoch_slice.iloc[:lookback // 2].max())
+            stoch_high2 = float(stoch_slice.iloc[-5:].max())
+
+            if price_low2 < price_low1 and stoch_low2 > stoch_low1:
+                score += 0.40
+                reasons.append("Bullish stochastic divergence (price lower low, stoch higher low)")
+                if stoch_k.iloc[-1] < 25:
+                    score += 0.15
+                    reasons.append("Stochastic in oversold zone")
+
+            elif price_high2 > price_high1 and stoch_high2 < stoch_high1:
+                score -= 0.40
+                reasons.append("Bearish stochastic divergence (price higher high, stoch lower high)")
+                if stoch_k.iloc[-1] > 75:
+                    score -= 0.15
+                    reasons.append("Stochastic in overbought zone")
+
+        if abs(score) == 0:
+            k_val = float(stoch_k.iloc[-1])
+            d_val = float(stoch_d.iloc[-1])
+
+            stoch_cross_up = False
+            stoch_cross_down = False
+            for i in range(1, 4):
+                if len(stoch_k) <= i:
+                    break
+                if (stoch_k.iloc[-i] > stoch_d.iloc[-i] and
+                        stoch_k.iloc[-i - 1] <= stoch_d.iloc[-i - 1]):
+                    stoch_cross_up = True
+                    break
+                elif (stoch_k.iloc[-i] < stoch_d.iloc[-i] and
+                      stoch_k.iloc[-i - 1] >= stoch_d.iloc[-i - 1]):
+                    stoch_cross_down = True
+                    break
+
+            if stoch_cross_up and k_val < 25:
+                score += 0.35
+                reasons.append(f"Stochastic K/D bullish crossover in oversold ({k_val:.0f})")
+            elif stoch_cross_down and k_val > 75:
+                score -= 0.35
+                reasons.append(f"Stochastic K/D bearish crossover in overbought ({k_val:.0f})")
+
+        if abs(score) < 0.30:
+            return {"signal": "SKIP", "confidence": 0, "reason": "No stochastic setup"}
+
+        signal = "BUY" if score > 0 else "SELL"
+        return {
+            "signal": signal,
+            "confidence": min(abs(score), 0.95),
+            "reasons": reasons,
+            "strategy": self.name,
+        }
+
+
 ALL_STRATEGIES = [
     DonchianBreakoutStrategy(),
     LondonBreakoutStrategy(),
@@ -581,4 +919,8 @@ ALL_STRATEGIES = [
     IchimokuStrategy(),
     SmartMoneyStrategy(),
     PriceActionStrategy(),
+    KeltnerChannelStrategy(),
+    ADXMomentumStrategy(),
+    FibonacciRetracementStrategy(),
+    StochasticDivergenceStrategy(),
 ]
