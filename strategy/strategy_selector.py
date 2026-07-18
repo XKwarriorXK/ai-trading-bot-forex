@@ -1,6 +1,7 @@
 """
 Strategy Selector — picks best strategy based on market regime.
 11 proven strategies vote, selector weights by regime fitness.
+Consensus-driven confidence: more strategies agreeing = exponentially higher confidence.
 """
 import logging
 from strategy.strategies import ALL_STRATEGIES
@@ -62,14 +63,40 @@ REGIME_WEIGHTS = {
     },
 }
 
+CONSENSUS_BONUS = {
+    2: 0.0,
+    3: 0.10,
+    4: 0.20,
+    5: 0.30,
+    6: 0.38,
+    7: 0.45,
+    8: 0.50,
+    9: 0.55,
+    10: 0.58,
+    11: 0.60,
+}
+
 MIN_AGREEING = 2
-MIN_CONFIDENCE = 0.40
-MIN_WEIGHTED_CONFIDENCE = 0.30
+MIN_CONFIDENCE = 0.35
+MIN_WEIGHTED_CONFIDENCE = 0.25
 
 
 class StrategySelector:
     def __init__(self):
         self.strategies = ALL_STRATEGIES
+
+    def _calc_confidence(self, votes):
+        n = len(votes)
+        avg_raw = sum(v["raw_confidence"] for v in votes) / n
+        max_raw = max(v["raw_confidence"] for v in votes)
+
+        base = (avg_raw * 0.6) + (max_raw * 0.4)
+
+        bonus = CONSENSUS_BONUS.get(n, 0.60)
+
+        final = base + bonus
+
+        return round(min(final, 0.95), 4), avg_raw
 
     def evaluate(self, df, regime: str) -> dict:
         votes = []
@@ -101,21 +128,19 @@ class StrategySelector:
         sell_votes = [v for v in votes if v["signal"] == "SELL"]
 
         if len(buy_votes) >= MIN_AGREEING:
-            avg_raw = sum(v["raw_confidence"] for v in buy_votes) / len(buy_votes)
-            avg_weighted = sum(v["weighted_confidence"] for v in buy_votes) / len(buy_votes)
-            final_conf = round(min(avg_weighted + 0.05 * (len(buy_votes) - MIN_AGREEING), 0.95), 4)
+            final_conf, avg_raw = self._calc_confidence(buy_votes)
             if avg_raw < MIN_CONFIDENCE:
                 return {
                     "signal": "SKIP",
                     "confidence": 0,
-                    "reason": f"BUY raw confidence {avg_raw:.2f} below {MIN_CONFIDENCE} minimum",
+                    "reason": f"BUY raw confidence {avg_raw:.2f} below {MIN_CONFIDENCE}",
                     "votes": votes,
                 }
             if final_conf < MIN_WEIGHTED_CONFIDENCE:
                 return {
                     "signal": "SKIP",
                     "confidence": 0,
-                    "reason": f"BUY weighted confidence {final_conf:.2f} below {MIN_WEIGHTED_CONFIDENCE} minimum",
+                    "reason": f"BUY confidence {final_conf:.2f} below {MIN_WEIGHTED_CONFIDENCE}",
                     "votes": votes,
                 }
             all_reasons = []
@@ -130,21 +155,19 @@ class StrategySelector:
             }
 
         if len(sell_votes) >= MIN_AGREEING:
-            avg_raw = sum(v["raw_confidence"] for v in sell_votes) / len(sell_votes)
-            avg_weighted = sum(v["weighted_confidence"] for v in sell_votes) / len(sell_votes)
-            final_conf = round(min(avg_weighted + 0.05 * (len(sell_votes) - MIN_AGREEING), 0.95), 4)
+            final_conf, avg_raw = self._calc_confidence(sell_votes)
             if avg_raw < MIN_CONFIDENCE:
                 return {
                     "signal": "SKIP",
                     "confidence": 0,
-                    "reason": f"SELL raw confidence {avg_raw:.2f} below {MIN_CONFIDENCE} minimum",
+                    "reason": f"SELL raw confidence {avg_raw:.2f} below {MIN_CONFIDENCE}",
                     "votes": votes,
                 }
             if final_conf < MIN_WEIGHTED_CONFIDENCE:
                 return {
                     "signal": "SKIP",
                     "confidence": 0,
-                    "reason": f"SELL weighted confidence {final_conf:.2f} below {MIN_WEIGHTED_CONFIDENCE} minimum",
+                    "reason": f"SELL confidence {final_conf:.2f} below {MIN_WEIGHTED_CONFIDENCE}",
                     "votes": votes,
                 }
             all_reasons = []

@@ -36,26 +36,26 @@ class DonchianBreakoutStrategy:
         reasons = []
 
         if price > upper_20:
-            score += 0.35
+            score += 0.50
             reasons.append("Broke 20-period high (Donchian)")
             if price > upper_55:
-                score += 0.15
+                score += 0.20
                 reasons.append("Also broke 55-period high")
             if atr_val > 0:
                 dist = (price - upper_20) / atr_val
                 if dist > 0.5:
-                    score += 0.10
+                    score += 0.15
                     reasons.append("Strong breakout (>0.5 ATR)")
         elif price < lower_20:
-            score -= 0.35
+            score -= 0.50
             reasons.append("Broke 20-period low (Donchian)")
             if price < lower_55:
-                score -= 0.15
+                score -= 0.20
                 reasons.append("Also broke 55-period low")
             if atr_val > 0:
                 dist = (lower_20 - price) / atr_val
                 if dist > 0.5:
-                    score -= 0.10
+                    score -= 0.15
                     reasons.append("Strong breakdown (>0.5 ATR)")
 
         if "volume" in df.columns and abs(score) > 0:
@@ -110,24 +110,24 @@ class LondonBreakoutStrategy:
         reasons = []
 
         if price > asian_high:
-            score += 0.35
+            score += 0.50
             reasons.append("Broke Asian high at London open")
             strength = (price - asian_high) / asian_range
             if strength > 0.3:
-                score += 0.15
+                score += 0.20
                 reasons.append(f"Strong breakout ({strength:.0%} of range)")
             if hour <= 8:
-                score += 0.10
+                score += 0.15
                 reasons.append("Early London — peak liquidity")
         elif price < asian_low:
-            score -= 0.35
+            score -= 0.50
             reasons.append("Broke Asian low at London open")
             strength = (asian_low - price) / asian_range
             if strength > 0.3:
-                score -= 0.15
+                score -= 0.20
                 reasons.append(f"Strong breakdown ({strength:.0%} of range)")
             if hour <= 8:
-                score -= 0.10
+                score -= 0.15
                 reasons.append("Early London — peak liquidity")
 
         if abs(score) < 0.25:
@@ -167,16 +167,16 @@ class BollingerRSIStrategy:
         reasons = []
 
         if price <= bb_lower and rsi.iloc[-1] < 35:
-            score += 0.40
+            score += 0.55
             reasons.append(f"Price at lower BB + RSI {rsi.iloc[-1]:.0f}")
             if price > ema_50.iloc[-1]:
-                score += 0.15
+                score += 0.20
                 reasons.append("In uptrend (above EMA50) — bounce likely")
         elif price >= bb_upper and rsi.iloc[-1] > 65:
-            score -= 0.40
+            score -= 0.55
             reasons.append(f"Price at upper BB + RSI {rsi.iloc[-1]:.0f}")
             if price < ema_50.iloc[-1]:
-                score -= 0.15
+                score -= 0.20
                 reasons.append("In downtrend (below EMA50) — rejection likely")
 
         if not pd.isna(stoch.iloc[-1]):
@@ -249,10 +249,10 @@ class MACDTrendStrategy:
         reasons = []
 
         if macd_crossed_up:
-            score += 0.30
+            score += 0.45
             reasons.append("MACD bullish crossover")
             if price > ema_50.iloc[-1]:
-                score += 0.15
+                score += 0.20
                 reasons.append("Above EMA50 (uptrend)")
             if price > ema_21.iloc[-1]:
                 score += 0.10
@@ -264,10 +264,10 @@ class MACDTrendStrategy:
                 score += 0.10
                 reasons.append("MACD crossed zero line")
         elif macd_crossed_down:
-            score -= 0.30
+            score -= 0.45
             reasons.append("MACD bearish crossover")
             if price < ema_50.iloc[-1]:
-                score -= 0.15
+                score -= 0.20
                 reasons.append("Below EMA50 (downtrend)")
             if price < ema_21.iloc[-1]:
                 score -= 0.10
@@ -275,7 +275,7 @@ class MACDTrendStrategy:
             if macd_hist.iloc[-1] < macd_hist.iloc[-2]:
                 score -= 0.10
                 reasons.append("MACD histogram accelerating down")
-            if macd_line.iloc[-1] < 0 and len(macd_line) > 4 and macd_line.iloc[-4] > 0:
+            if macd_line.iloc[-1] < 0 and len(macd_line) > 4 and macd_line.iloc[-4] < 0:
                 score -= 0.10
                 reasons.append("MACD crossed below zero")
 
@@ -320,10 +320,10 @@ class IchimokuStrategy:
         reasons = []
 
         if price > cloud_top:
-            score += 0.20
+            score += 0.35
             reasons.append("Price above Ichimoku cloud")
         elif price < cloud_bottom:
-            score -= 0.20
+            score -= 0.35
             reasons.append("Price below Ichimoku cloud")
         else:
             return {"signal": "SKIP", "confidence": 0, "reason": "Price inside cloud"}
@@ -344,16 +344,16 @@ class IchimokuStrategy:
                 break
 
         if tk_cross_up and score > 0:
-            score += 0.25
+            score += 0.30
             reasons.append("Tenkan crossed above Kijun")
         elif tk_cross_down and score < 0:
-            score -= 0.25
+            score -= 0.30
             reasons.append("Tenkan crossed below Kijun")
         elif tenkan.iloc[-1] > kijun.iloc[-1] and score > 0:
-            score += 0.10
+            score += 0.15
             reasons.append("Tenkan above Kijun")
         elif tenkan.iloc[-1] < kijun.iloc[-1] and score < 0:
-            score -= 0.10
+            score -= 0.15
             reasons.append("Tenkan below Kijun")
 
         cloud_bullish = span_a.iloc[-1] > span_b.iloc[-1]
@@ -529,20 +529,20 @@ class PriceActionStrategy:
 
         # PIN BAR — long wick rejection
         if curr_lower_wick > curr_range * 0.6 and curr_body < curr_range * 0.3:
-            score += 0.35
+            score += 0.50
             reasons.append("Bullish pin bar (lower wick rejection)")
         elif curr_upper_wick > curr_range * 0.6 and curr_body < curr_range * 0.3:
-            score -= 0.35
+            score -= 0.50
             reasons.append("Bearish pin bar (upper wick rejection)")
 
         # ENGULFING PATTERN
         if prev_close < prev_open and curr_close > curr_open:
             if curr_close > prev_open and curr_open <= prev_close:
-                score += 0.30
+                score += 0.45
                 reasons.append("Bullish engulfing pattern")
         elif prev_close > prev_open and curr_close < curr_open:
             if curr_close < prev_open and curr_open >= prev_close:
-                score -= 0.30
+                score -= 0.45
                 reasons.append("Bearish engulfing pattern")
 
         # PATTERN AT KEY LEVEL amplifies signal
