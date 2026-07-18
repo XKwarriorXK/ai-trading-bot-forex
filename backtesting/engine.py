@@ -1,7 +1,6 @@
 """
-Backtesting Engine — walks through historical forex data bar by bar.
-Realistic cost modeling with spread and slippage.
-Institutional exit management: breakeven stop, ATR trailing stop.
+Backtesting Engine — institutional-grade exit management.
+Partial profit scaling, time stops, adverse excursion, ATR trailing.
 """
 import logging
 import numpy as np
@@ -99,12 +98,22 @@ class BacktestEngine:
                 tp_price = entry_price - (tp_pips * self.pip_value)
 
         units = abs(signal.get("units", 1000))
-        risk_per_pip = abs(entry_price - sl_price) / self.pip_value
+        risk_pips = abs(entry_price - sl_price) / self.pip_value
+
+        if signal["final_decision"] == "BUY":
+            tp1_price = entry_price + (risk_pips * self.pip_value)
+            tp2_price = entry_price + (risk_pips * 2.0 * self.pip_value)
+            tp3_price = entry_price + (risk_pips * 3.0 * self.pip_value)
+        else:
+            tp1_price = entry_price - (risk_pips * self.pip_value)
+            tp2_price = entry_price - (risk_pips * 2.0 * self.pip_value)
+            tp3_price = entry_price - (risk_pips * 3.0 * self.pip_value)
 
         self.current_position = {
             "direction": signal["final_decision"],
             "entry_price": entry_price,
-            "units": units,
+            "original_units": units,
+            "units_remaining": units,
             "stop_loss": sl_price,
             "original_sl": sl_price,
             "take_profit": tp_price,
@@ -112,8 +121,17 @@ class BacktestEngine:
             "confidence": signal.get("confidence", 0),
             "highest": entry_price,
             "lowest": entry_price,
-            "risk_pips": risk_per_pip,
+            "risk_pips": risk_pips,
+            "tp1_price": tp1_price,
+            "tp2_price": tp2_price,
+            "tp3_price": tp3_price,
+            "tp1_hit": False,
+            "tp2_hit": False,
+            "tp3_hit": False,
             "at_breakeven": False,
+            "total_partial_pnl": 0,
+            "partial_closes": 0,
+            "best_r_multiple": 0,
         }
 
     def _check_exit(self, bar, bar_idx):
@@ -121,53 +139,114 @@ class BacktestEngine:
         high = float(bar["high"])
         low = float(bar["low"])
         close = float(bar["close"])
+        bars_held = bar_idx - pos["entry_bar"]
 
         if pos["direction"] == "BUY":
             if high > pos["highest"]:
                 pos["highest"] = high
+            current_r = (pos["highest"] - pos["entry_price"]) / (pos["risk_pips"] * self.pip_value) if pos["risk_pips"] > 0 else 0
         else:
             if low < pos["lowest"]:
                 pos["lowest"] = low
+            current_r = (pos["entry_price"] - pos["lowest"]) / (pos["risk_pips"] * self.pip_value) if pos["risk_pips"] > 0 else 0
 
-        # 1. STOP LOSS — always protect capital
+        if current_r > pos["best_r_multiple"]:
+            pos["best_r_multiple"] = current_r
+
+        # === CUTTING LOSERS ===
+
+        # 1. STOP LOSS — hard protection, closes ALL remaining units
         if pos["direction"] == "BUY":
             if low <= pos["stop_loss"]:
-                exit_price = pos["stop_loss"]
-                reason = "breakeven_stop" if pos["at_breakeven"] else "stop_loss"
-                self._close(exit_price, bar_idx, reason)
+                reason = "trailing_stop" if pos["tp1_hit"] else ("breakeven_stop" if pos["at_breakeven"] else "stop_loss")
+                self._close_full(pos["stop_loss"], bar_idx, reason)
                 return
         else:
             if high >= pos["stop_loss"]:
-                exit_price = pos["stop_loss"]
-                reason = "breakeven_stop" if pos["at_breakeven"] else "stop_loss"
-                self._close(exit_price, bar_idx, reason)
+                reason = "trailing_stop" if pos["tp1_hit"] else ("breakeven_stop" if pos["at_breakeven"] else "stop_loss")
+                self._close_full(pos["stop_loss"], bar_idx, reason)
                 return
 
-        # 2. TAKE PROFIT — hard target from risk manager R:R
-        if pos["direction"] == "BUY":
-            if high >= pos["take_profit"]:
-                self._close(pos["take_profit"], bar_idx, "take_profit")
-                return
-        else:
-            if low <= pos["take_profit"]:
-                self._close(pos["take_profit"], bar_idx, "take_profit")
-                return
-
-        # 3. BREAKEVEN STOP — once up 1R, move stop to entry (free trade)
-        if not pos["at_breakeven"] and pos["risk_pips"] > 0:
+        # 2. ADVERSE EXCURSION — entry was wrong, cut early at 0.5R
+        #    If trade immediately goes against us in first 3 bars, don't wait for full stop
+        if bars_held <= 3 and not pos["at_breakeven"]:
             if pos["direction"] == "BUY":
-                pips_in_profit = (pos["highest"] - pos["entry_price"]) / self.pip_value
+                adverse_pips = (pos["entry_price"] - low) / self.pip_value
             else:
-                pips_in_profit = (pos["entry_price"] - pos["lowest"]) / self.pip_value
+                adverse_pips = (high - pos["entry_price"]) / self.pip_value
 
-            if pips_in_profit >= pos["risk_pips"]:
-                pos["stop_loss"] = pos["entry_price"]
+            if adverse_pips >= pos["risk_pips"] * 0.6:
+                self._close_full(close, bar_idx, "adverse_excursion")
+                return
+
+        # 3. TIME STOP — trade going nowhere, dead money
+        #    After 20 bars (20 hours on H1) with less than 0.3R profit, kill it
+        if bars_held >= 20 and not pos["tp1_hit"]:
+            if pos["direction"] == "BUY":
+                pips_profit = (close - pos["entry_price"]) / self.pip_value
+            else:
+                pips_profit = (pos["entry_price"] - close) / self.pip_value
+
+            if pips_profit < pos["risk_pips"] * 0.3:
+                self._close_full(close, bar_idx, "time_stop")
+                return
+
+        # === LETTING WINNERS RUN ===
+
+        # 4. TP1 at 1R — close 50%, move stop to breakeven
+        if not pos["tp1_hit"]:
+            tp1_triggered = False
+            if pos["direction"] == "BUY":
+                tp1_triggered = high >= pos["tp1_price"]
+            else:
+                tp1_triggered = low <= pos["tp1_price"]
+
+            if tp1_triggered:
+                units_to_close = int(pos["original_units"] * 0.50)
+                if units_to_close > 0:
+                    self._close_partial(pos["tp1_price"], bar_idx, "tp1_partial", units_to_close)
+                pos["tp1_hit"] = True
                 pos["at_breakeven"] = True
+                pos["stop_loss"] = pos["entry_price"]
 
-        # 4. ATR TRAILING STOP — lock in profit as price runs
+        # 5. TP2 at 2R — close 25% more, tighten trail to 1.5x ATR
+        if pos["tp1_hit"] and not pos["tp2_hit"]:
+            tp2_triggered = False
+            if pos["direction"] == "BUY":
+                tp2_triggered = high >= pos["tp2_price"]
+            else:
+                tp2_triggered = low <= pos["tp2_price"]
+
+            if tp2_triggered:
+                units_to_close = int(pos["original_units"] * 0.25)
+                if units_to_close > 0 and pos["units_remaining"] > units_to_close:
+                    self._close_partial(pos["tp2_price"], bar_idx, "tp2_partial", units_to_close)
+                pos["tp2_hit"] = True
+
+        # 6. TP3 at 3R — close another chunk, let remainder ride
+        if pos["tp2_hit"] and not pos["tp3_hit"]:
+            tp3_triggered = False
+            if pos["direction"] == "BUY":
+                tp3_triggered = high >= pos["tp3_price"]
+            else:
+                tp3_triggered = low <= pos["tp3_price"]
+
+            if tp3_triggered:
+                units_to_close = int(pos["original_units"] * 0.15)
+                if units_to_close > 0 and pos["units_remaining"] > units_to_close:
+                    self._close_partial(pos["tp3_price"], bar_idx, "tp3_partial", units_to_close)
+                pos["tp3_hit"] = True
+
+        # 7. ATR TRAILING STOP — ratchets up as price runs
         if pos["at_breakeven"] and bar_idx < len(self.atr) and not pd.isna(self.atr.iloc[bar_idx]):
             atr_val = float(self.atr.iloc[bar_idx])
-            trail_distance = atr_val * 2.0
+
+            if pos["tp2_hit"]:
+                trail_multiplier = 1.5
+            else:
+                trail_multiplier = 2.0
+
+            trail_distance = atr_val * trail_multiplier
 
             if pos["direction"] == "BUY":
                 new_trail = pos["highest"] - trail_distance
@@ -178,14 +257,55 @@ class BacktestEngine:
                 if new_trail < pos["stop_loss"]:
                     pos["stop_loss"] = new_trail
 
-    def _close(self, exit_price, bar_idx, reason):
+        # 8. RUNNER CLEANUP — if only tiny units left and past 3R, take profit
+        if pos["tp3_hit"] and pos["units_remaining"] <= int(pos["original_units"] * 0.15):
+            if current_r >= 4.0:
+                self._close_full(close, bar_idx, "runner_exit_4R")
+                return
+
+    def _close_partial(self, exit_price, bar_idx, reason, units_to_close):
         pos = self.current_position
         if pos["direction"] == "BUY":
             pnl_pips = (exit_price - pos["entry_price"]) / self.pip_value
         else:
             pnl_pips = (pos["entry_price"] - exit_price) / self.pip_value
 
-        pnl_usd = pnl_pips * self.pip_value * pos["units"]
+        pnl_usd = pnl_pips * self.pip_value * units_to_close
+        self.balance += pnl_usd
+        pos["units_remaining"] -= units_to_close
+        pos["total_partial_pnl"] += pnl_usd
+        pos["partial_closes"] += 1
+
+        self.trades.append({
+            "instrument": self.instrument,
+            "direction": pos["direction"],
+            "entry_price": pos["entry_price"],
+            "exit_price": exit_price,
+            "units": units_to_close,
+            "pnl": round(pnl_usd, 2),
+            "pnl_pips": round(pnl_pips, 1),
+            "reason": reason,
+            "confidence": pos["confidence"],
+            "bars_held": bar_idx - pos["entry_bar"],
+            "partial": True,
+        })
+        self.equity_curve.append({"bar": bar_idx, "equity": self.balance})
+        self.risk.record_trade_result(pnl_usd)
+
+    def _close_full(self, exit_price, bar_idx, reason):
+        pos = self.current_position
+        units = pos["units_remaining"]
+
+        if units <= 0:
+            self.current_position = None
+            return
+
+        if pos["direction"] == "BUY":
+            pnl_pips = (exit_price - pos["entry_price"]) / self.pip_value
+        else:
+            pnl_pips = (pos["entry_price"] - exit_price) / self.pip_value
+
+        pnl_usd = pnl_pips * self.pip_value * units
         self.balance += pnl_usd
 
         self.trades.append({
@@ -193,19 +313,23 @@ class BacktestEngine:
             "direction": pos["direction"],
             "entry_price": pos["entry_price"],
             "exit_price": exit_price,
-            "units": pos["units"],
+            "units": units,
             "pnl": round(pnl_usd, 2),
             "pnl_pips": round(pnl_pips, 1),
             "reason": reason,
             "confidence": pos["confidence"],
             "bars_held": bar_idx - pos["entry_bar"],
+            "partial": False,
+            "total_trade_pnl": round(pnl_usd + pos["total_partial_pnl"], 2),
+            "partial_closes": pos["partial_closes"],
+            "best_r": round(pos["best_r_multiple"], 1),
         })
         self.equity_curve.append({"bar": bar_idx, "equity": self.balance})
         self.risk.record_trade_result(pnl_usd)
         self.current_position = None
 
     def _force_close(self, bar, bar_idx):
-        self._close(float(bar["close"]), bar_idx, "end_of_data")
+        self._close_full(float(bar["close"]), bar_idx, "end_of_data")
 
     def _generate_report(self, data) -> dict:
         if not self.trades:
@@ -235,13 +359,20 @@ class BacktestEngine:
             r = t["reason"]
             exit_reasons[r] = exit_reasons.get(r, 0) + 1
 
-        avg_bars = np.mean([t["bars_held"] for t in self.trades])
+        full_closes = [t for t in self.trades if not t.get("partial", False)]
+        partial_closes = [t for t in self.trades if t.get("partial", False)]
+
+        avg_bars = np.mean([t["bars_held"] for t in full_closes]) if full_closes else 0
+        avg_winner_bars = np.mean([t["bars_held"] for t in full_closes if t["pnl"] > 0]) if [t for t in full_closes if t["pnl"] > 0] else 0
+        avg_loser_bars = np.mean([t["bars_held"] for t in full_closes if t["pnl"] <= 0]) if [t for t in full_closes if t["pnl"] <= 0] else 0
 
         return {
             "instrument": self.instrument,
             "mode": self.mode,
             "total_bars": len(data),
             "total_trades": len(self.trades),
+            "full_closes": len(full_closes),
+            "partial_closes": len(partial_closes),
             "wins": len(wins),
             "losses": len(losses),
             "win_rate": round(len(wins) / len(self.trades) * 100, 1),
@@ -258,6 +389,8 @@ class BacktestEngine:
             "return_pct": round((self.balance - self.initial_balance) / self.initial_balance * 100, 2),
             "avg_pips": round(np.mean([t["pnl_pips"] for t in self.trades]), 1),
             "avg_bars_held": round(avg_bars, 1),
+            "avg_winner_bars": round(avg_winner_bars, 1),
+            "avg_loser_bars": round(avg_loser_bars, 1),
             "exit_reasons": exit_reasons,
             "trades": self.trades,
             "equity_curve": self.equity_curve,
