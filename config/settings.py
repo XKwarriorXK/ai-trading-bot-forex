@@ -110,11 +110,10 @@ RISK = {
 }
 
 CONFIDENCE_TIERS = {
-    "skip":       {"min": 0.0, "max": 0.30, "action": "NO TRADE"},
-    "flag":       {"min": 0.30, "max": 0.50, "action": "LOG ONLY"},
-    "cautious":   {"min": 0.50, "max": 0.65, "action": "SMALL"},
-    "standard":   {"min": 0.65, "max": 0.80, "action": "STANDARD"},
-    "aggressive": {"min": 0.80, "max": 1.00, "action": "FULL"},
+    "C":  {"min": 0.0,  "max": 0.55, "action": "NO TRADE",   "size": 0.0},
+    "B":  {"min": 0.55, "max": 0.70, "action": "SKIP",       "size": 0.0},
+    "A":  {"min": 0.70, "max": 0.85, "action": "STANDARD",   "size": 0.75},
+    "A+": {"min": 0.85, "max": 1.00, "action": "FULL + AI",  "size": 1.0},
 }
 
 
