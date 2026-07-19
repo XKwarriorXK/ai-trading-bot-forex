@@ -13,9 +13,10 @@ class TradePipeline:
     def __init__(self, technical, strategy_selector, debate, risk,
                  session_filter, spread_filter, news_agent,
                  market_structure, multi_tf, journal, router=None,
-                 entry_sniper=None):
+                 entry_sniper=None, swing_selector=None):
         self.technical = technical
         self.strategy_selector = strategy_selector
+        self.swing_selector = swing_selector
         self.debate = debate
         self.risk = risk
         self.session = session_filter
@@ -28,7 +29,7 @@ class TradePipeline:
         self.entry_sniper = entry_sniper
 
     def evaluate(self, df, instrument: str, price_data: dict = None,
-                 mode: str = "full") -> dict:
+                 mode: str = "full", style: str = "scalp") -> dict:
         result = {
             "instrument": instrument,
             "final_decision": "SKIP",
@@ -74,8 +75,10 @@ class TradePipeline:
             except Exception as e:
                 logger.warning(f"Multi-TF failed for {instrument}: {e}")
 
-        # 6. STRATEGY ENSEMBLE — 11 strategies vote (per-pair thresholds)
-        if self.strategy_selector:
+        # 6. STRATEGY ENSEMBLE — scalp (11 strategies) or swing (gate+entry)
+        if style == "swing" and self.swing_selector:
+            ensemble = self.swing_selector.evaluate(df, regime, instrument=instrument)
+        elif self.strategy_selector:
             ensemble = self.strategy_selector.evaluate(df, regime, instrument=instrument)
         else:
             ensemble = {"signal": tech.get("signal", "SKIP"),
@@ -239,6 +242,9 @@ class TradePipeline:
         result["reasons"] = ensemble.get("reasons", [])
         result["strategies"] = ensemble.get("agreeing_strategies", [])
         result["indicators"] = tech.get("indicators", {})
+
+        if ensemble.get("structure"):
+            result["structure"] = ensemble["structure"]
 
         # Log signal
         if self.journal:

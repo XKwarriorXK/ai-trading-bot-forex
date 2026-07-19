@@ -42,6 +42,11 @@ def build_pipeline(args):
 
     technical = TechnicalAgent()
     strategy_selector = StrategySelector()
+    swing_selector = None
+    if args.style == "swing":
+        from strategy.swing_selector import SwingSelector
+        swing_selector = SwingSelector()
+        logger.info("Swing engine loaded — gate+entry architecture")
     risk = RiskManager(account_balance=args.balance)
     structure = MarketStructureAgent()
     journal = TradeJournal(db_path="data/backtest_trades.db")
@@ -71,6 +76,7 @@ def build_pipeline(args):
         multi_tf=None,
         journal=journal,
         router=router,
+        swing_selector=swing_selector,
     )
 
     return pipeline, risk

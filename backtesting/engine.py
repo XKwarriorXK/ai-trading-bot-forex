@@ -50,8 +50,10 @@ class BacktestEngine:
         self.balance = self.initial_balance
 
     def run(self, data: pd.DataFrame, lookback: int = 200) -> dict:
+        if self.style == "swing":
+            lookback = max(lookback, 250)
         logger.info(f"Backtesting {self.instrument} | {len(data)} bars | "
-                   f"Mode: {self.mode} | Balance: ${self.balance:,.2f}")
+                   f"Mode: {self.mode} | Style: {self.style} | Balance: ${self.balance:,.2f}")
 
         self.equity_curve = [{"bar": 0, "equity": self.balance}]
 
@@ -78,6 +80,7 @@ class BacktestEngine:
                     window, self.instrument,
                     price_data={"bid": float(current_bar["close"]), "spread": self.spec["spread_avg"] * self.pip_value, "timestamp": bar_ts},
                     mode=self.mode,
+                    style=self.style,
                 )
 
                 if result["final_decision"] in ("BUY", "SELL"):
@@ -106,6 +109,16 @@ class BacktestEngine:
         tp_price = signal.get("take_profit_price")
         sl_pips = signal.get("stop_loss_pips", 30)
         tp_pips = signal.get("take_profit_pips", 60)
+
+        # Swing mode: structure-based stop loss
+        struct = signal.get("structure") if self.style == "swing" else None
+        if self.style == "swing" and struct:
+            atr_val = signal.get("indicators", {}).get("atr", 0)
+            buffer = atr_val * 0.5 if atr_val > 0 else self.pip_value * 20
+            if signal["final_decision"] == "BUY" and struct.get("last_swing_low"):
+                sl_price = struct["last_swing_low"] - buffer
+            elif signal["final_decision"] == "SELL" and struct.get("last_swing_high"):
+                sl_price = struct["last_swing_high"] + buffer
 
         if not sl_price:
             if signal["final_decision"] == "BUY":
