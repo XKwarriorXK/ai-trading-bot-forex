@@ -105,7 +105,7 @@ def main():
                        help="fast=technical only, full=with AI")
     parser.add_argument("--style", default="scalp", choices=["scalp", "swing"],
                        help="scalp=H1 quick trades, swing=H4 big moves")
-    parser.add_argument("--balance", type=float, default=10000, help="Starting balance")
+    parser.add_argument("--balance", type=float, default=100, help="Starting balance")
     parser.add_argument("--monte-carlo", action="store_true",
                        help="Run Monte Carlo risk analysis")
     parser.add_argument("--mc-sims", type=int, default=10000,
