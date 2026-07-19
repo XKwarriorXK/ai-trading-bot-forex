@@ -170,3 +170,11 @@ PAIR_PROFILES = {
         "time_stop_bars": 20, "time_stop_r": 0.2,
     },
 }
+
+SWING_EXIT = {
+    "tp1_r": 3.0, "tp1_pct": 0.25,
+    "tp2_r": 5.0, "tp2_pct": 0.25,
+    "tp3_r": 8.0, "tp3_pct": 0.25,
+    "adverse_r": 0.5, "adverse_bars": 4,
+    "time_stop_bars": 40, "time_stop_r": 0.2,
+}

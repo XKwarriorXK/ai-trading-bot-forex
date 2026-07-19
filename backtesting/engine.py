@@ -6,12 +6,14 @@ Per-pair profiles override default exit parameters when configured.
 import logging
 import numpy as np
 import pandas as pd
-from config.settings import INSTRUMENTS, PAIR_PROFILES
+from config.settings import INSTRUMENTS, PAIR_PROFILES, SWING_EXIT
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_EXIT = {
     "tp1_r": 1.5, "tp1_pct": 0.33,
+    "tp2_r": 2.5, "tp2_pct": 0.25,
+    "tp3_r": 4.0, "tp3_pct": 0.15,
     "adverse_r": 0.6, "adverse_bars": 3,
     "time_stop_bars": 30, "time_stop_r": 0.3,
 }
@@ -24,17 +26,23 @@ class BacktestEngine:
     }
 
     def __init__(self, pipeline, risk, instrument: str = "EUR_USD",
-                 mode: str = "fast", timeframe: str = "H1"):
+                 mode: str = "fast", timeframe: str = "H1",
+                 style: str = "scalp"):
         self.pipeline = pipeline
         self.risk = risk
         self.instrument = instrument
         self.mode = mode
+        self.style = style
         self.timeframe = timeframe
         self.spec = INSTRUMENTS.get(instrument, INSTRUMENTS["EUR_USD"])
         self.pip_value = 10 ** self.spec["pip_location"]
 
+        if style == "swing":
+            base = SWING_EXIT
+        else:
+            base = DEFAULT_EXIT
         profile = PAIR_PROFILES.get(instrument, {})
-        self.exit_params = {k: profile.get(k, DEFAULT_EXIT[k]) for k in DEFAULT_EXIT}
+        self.exit_params = {k: profile.get(k, base.get(k, DEFAULT_EXIT[k])) for k in base}
 
         self.trades = []
         self.equity_curve = []
@@ -112,14 +120,16 @@ class BacktestEngine:
         risk_pips = abs(entry_price - sl_price) / self.pip_value
 
         tp1_r = self.exit_params["tp1_r"]
+        tp2_r = self.exit_params.get("tp2_r", 2.5)
+        tp3_r = self.exit_params.get("tp3_r", 4.0)
         if signal["final_decision"] == "BUY":
             tp1_price = entry_price + (risk_pips * tp1_r * self.pip_value)
-            tp2_price = entry_price + (risk_pips * 2.5 * self.pip_value)
-            tp3_price = entry_price + (risk_pips * 4.0 * self.pip_value)
+            tp2_price = entry_price + (risk_pips * tp2_r * self.pip_value)
+            tp3_price = entry_price + (risk_pips * tp3_r * self.pip_value)
         else:
             tp1_price = entry_price - (risk_pips * tp1_r * self.pip_value)
-            tp2_price = entry_price - (risk_pips * 2.5 * self.pip_value)
-            tp3_price = entry_price - (risk_pips * 4.0 * self.pip_value)
+            tp2_price = entry_price - (risk_pips * tp2_r * self.pip_value)
+            tp3_price = entry_price - (risk_pips * tp3_r * self.pip_value)
 
         self.current_position = {
             "direction": signal["final_decision"],
@@ -223,7 +233,8 @@ class BacktestEngine:
                 pos["at_breakeven"] = True
                 pos["stop_loss"] = pos["entry_price"]
 
-        # 5. TP2 at 2R — close 25% more, tighten trail to 1.5x ATR
+        # 5. TP2 — close chunk, tighten trail
+        tp2_pct = self.exit_params.get("tp2_pct", 0.25)
         if pos["tp1_hit"] and not pos["tp2_hit"]:
             tp2_triggered = False
             if pos["direction"] == "BUY":
@@ -232,12 +243,13 @@ class BacktestEngine:
                 tp2_triggered = low <= pos["tp2_price"]
 
             if tp2_triggered:
-                units_to_close = int(pos["original_units"] * 0.25)
+                units_to_close = int(pos["original_units"] * tp2_pct)
                 if units_to_close > 0 and pos["units_remaining"] > units_to_close:
                     self._close_partial(pos["tp2_price"], bar_idx, "tp2_partial", units_to_close)
                 pos["tp2_hit"] = True
 
-        # 6. TP3 at 3R — close another chunk, let remainder ride
+        # 6. TP3 — close another chunk, let remainder ride
+        tp3_pct = self.exit_params.get("tp3_pct", 0.15)
         if pos["tp2_hit"] and not pos["tp3_hit"]:
             tp3_triggered = False
             if pos["direction"] == "BUY":
@@ -246,7 +258,7 @@ class BacktestEngine:
                 tp3_triggered = low <= pos["tp3_price"]
 
             if tp3_triggered:
-                units_to_close = int(pos["original_units"] * 0.15)
+                units_to_close = int(pos["original_units"] * tp3_pct)
                 if units_to_close > 0 and pos["units_remaining"] > units_to_close:
                     self._close_partial(pos["tp3_price"], bar_idx, "tp3_partial", units_to_close)
                 pos["tp3_hit"] = True

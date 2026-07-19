@@ -80,13 +80,15 @@ def run_single(args, instrument):
     from backtesting.data_loader import fetch_oanda_historical
     from backtesting.engine import BacktestEngine
 
-    data = fetch_oanda_historical(instrument, args.timeframe, args.days)
+    timeframe = "H4" if args.style == "swing" else args.timeframe
+    data = fetch_oanda_historical(instrument, timeframe, args.days)
     if data.empty:
         logger.warning(f"No data for {instrument} — skipping")
         return None
 
     pipeline, risk = build_pipeline(args)
-    engine = BacktestEngine(pipeline, risk, instrument, args.mode, args.timeframe)
+    engine = BacktestEngine(pipeline, risk, instrument, args.mode, timeframe,
+                            style=args.style)
     results = engine.run(data)
     return results
 
@@ -101,6 +103,8 @@ def main():
     parser.add_argument("--timeframe", default="H1", help="Candle timeframe")
     parser.add_argument("--mode", default="fast", choices=["fast", "full"],
                        help="fast=technical only, full=with AI")
+    parser.add_argument("--style", default="scalp", choices=["scalp", "swing"],
+                       help="scalp=H1 quick trades, swing=H4 big moves")
     parser.add_argument("--balance", type=float, default=10000, help="Starting balance")
     parser.add_argument("--monte-carlo", action="store_true",
                        help="Run Monte Carlo risk analysis")
@@ -113,8 +117,9 @@ def main():
     logger.info("=" * 60)
     logger.info("FOREX BACKTEST")
     logger.info(f"  Pairs: {len(instruments)} | Days: {args.days}")
-    logger.info(f"  Mode: {args.mode} | Balance: ${args.balance:,.2f}")
-    logger.info(f"  Instruments: {', '.join(instruments)}")
+    logger.info(f"  Mode: {args.mode} | Style: {args.style} | Balance: ${args.balance:,.2f}")
+    tf = "H4" if args.style == "swing" else args.timeframe
+    logger.info(f"  Timeframe: {tf} | Instruments: {', '.join(instruments)}")
     logger.info("=" * 60)
 
     all_results = {}
