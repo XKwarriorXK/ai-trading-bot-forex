@@ -48,7 +48,7 @@ APPROVAL_CHAIN = {
         "reviewers": [
             {"provider": "groq", "model": "gpt20", "role": "trend_screener"},
             {"provider": "groq", "model": "small", "role": "momentum_screener"},
-            {"provider": "groq", "model": "fast", "role": "risk_screener"},
+            {"provider": "groq", "model": "gpt120", "role": "risk_screener"},
         ],
         "min_pass": 2,
     },

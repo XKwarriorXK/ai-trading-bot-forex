@@ -151,8 +151,10 @@ class AIProvider:
             return {"success": False, "error": error_str, "content": ""}
 
     def call_json(self, model_key: str, prompt: str, system_prompt: str = "",
-                  priority: str = "medium", provider_name: str = "groq") -> dict:
-        result = self.call(model_key, prompt, system_prompt, priority, provider_name=provider_name)
+                  priority: str = "medium", provider_name: str = "groq",
+                  max_tokens: int = 1024) -> dict:
+        result = self.call(model_key, prompt, system_prompt, priority,
+                          max_tokens=max_tokens, provider_name=provider_name)
         if not result["success"]:
             return {**result, "parsed": None}
         try:

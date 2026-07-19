@@ -230,10 +230,12 @@ class DebateAgent:
         self.router = router
         self.provider = provider or (router.provider if router else None)
 
-    def _call_reviewer(self, model_key, provider_name, prompt, system):
+    def _call_reviewer(self, model_key, provider_name, prompt, system,
+                       max_tokens=1024):
         return self.provider.call_json(
             model_key, prompt, system,
             priority="high", provider_name=provider_name,
+            max_tokens=max_tokens,
         )
 
     def _format_l2_summary(self, results):
@@ -342,7 +344,8 @@ class DebateAgent:
             )
             logger.info(f"L3 SENIOR | {role} | {prov}:{model}")
 
-            result = self._call_reviewer(model, prov, prompt, prompts["system"])
+            result = self._call_reviewer(model, prov, prompt, prompts["system"],
+                                         max_tokens=2048)
 
             if result["success"] and result.get("parsed"):
                 parsed = result["parsed"]
@@ -409,7 +412,8 @@ class DebateAgent:
         model = l4_config["model"]
         logger.info(f"L4 FINAL | Head trader | {prov}:{model}")
 
-        final_result = self._call_reviewer(model, prov, final_prompt, L4_SYSTEM)
+        final_result = self._call_reviewer(model, prov, final_prompt, L4_SYSTEM,
+                                             max_tokens=2048)
 
         if final_result["success"] and final_result.get("parsed"):
             parsed = final_result["parsed"]
