@@ -23,8 +23,8 @@ AI_PROVIDERS = {
     "gemini": {
         "api_key": os.getenv("GEMINI_API_KEY"),
         "models": {
-            "flash": "gemini-2.5-flash",
-            "pro": "gemini-2.5-pro",
+            "flash": "gemini-2.0-flash",
+            "pro": "gemini-3.1-pro-preview",
         },
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
     },
