@@ -161,6 +161,7 @@ class AIProvider:
             fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
             if fence:
                 text = fence.group(1)
+            text = re.sub(r':\s*\+(\d)', r': \1', text)
             start = text.find("{")
             end = text.rfind("}") + 1
             if start >= 0 and end > start:
