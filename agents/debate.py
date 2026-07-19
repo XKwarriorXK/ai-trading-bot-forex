@@ -10,10 +10,10 @@ Level 2: Fast Screening — 3 Groq models, quick sanity checks
          Need 2/3 to pass.
 Level 3: Senior Panel — 2 models do deep analysis
          - GPT-OSS 120B: Senior technical analyst
-         - Gemini 2.5 Flash: Senior structure analyst
-         Need 2/2 (both must agree).
+         - GPT-OSS 20B: Senior structure analyst
+         All available must agree (min 1).
 Level 4: Final Approver — best model makes the call
-         - Gemini 2.5 Pro: Head trader
+         - Gemini 3.5 Flash: Head trader
          Sees all L2 + L3 findings. EXECUTE / REJECT / WAIT.
 Level 5: Risk Engine (hard limits — pipeline handles after debate)
 """
@@ -301,7 +301,8 @@ class DebateAgent:
         l2_total = len(l2_results)
         l2_min = l2_config["min_pass"]
 
-        logger.info(f"L2 COMPLETE | {l2_passed} pass, {l2_failed} fail, {len(l2_config['reviewers']) - l2_total} unavailable (need {l2_min})")
+        effective_l2_min = max(1, min(l2_min, l2_total))
+        logger.info(f"L2 COMPLETE | {l2_passed} pass, {l2_failed} fail, {len(l2_config['reviewers']) - l2_total} unavailable (need {effective_l2_min} of {l2_total} available)")
 
         if l2_total == 0:
             logger.warning("L2 | No screeners available — BLOCKING trade")
@@ -312,13 +313,13 @@ class DebateAgent:
                 "l2_results": [], "l3_results": [], "level": 2,
             }
 
-        if l2_passed < l2_min:
+        if l2_passed < effective_l2_min:
             fail_flags = "; ".join(r["flag"] for r in l2_results if not r["passed"])
             logger.info(f"L2 REJECTED | {fail_flags}")
             return {
                 "verdict": "SKIP",
                 "adjusted_confidence": confidence * 0.5,
-                "reasoning": f"L2 screening failed ({l2_passed}/{l2_total} pass, need {l2_min}): {fail_flags}",
+                "reasoning": f"L2 screening failed ({l2_passed}/{l2_total} pass, need {effective_l2_min}): {fail_flags}",
                 "l2_results": l2_results, "l3_results": [], "level": 2,
             }
 
@@ -369,7 +370,8 @@ class DebateAgent:
         l3_total = len(l3_results)
         l3_min = l3_config["min_pass"]
 
-        logger.info(f"L3 COMPLETE | {l3_approved} approved, {l3_rejected} rejected, {len(l3_config['reviewers']) - l3_total} unavailable (need {l3_min})")
+        effective_l3_min = max(1, min(l3_min, l3_total))
+        logger.info(f"L3 COMPLETE | {l3_approved} approved, {l3_rejected} rejected, {len(l3_config['reviewers']) - l3_total} unavailable (need {effective_l3_min} of {l3_total} available)")
 
         if l3_total == 0:
             logger.warning("L3 | No seniors available — BLOCKING trade")
@@ -380,13 +382,13 @@ class DebateAgent:
                 "l2_results": l2_results, "l3_results": [], "level": 3,
             }
 
-        if l3_approved < l3_min:
+        if l3_approved < effective_l3_min:
             reject_findings = "; ".join(r["key_finding"] for r in l3_results if not r["approved"])
             logger.info(f"L3 REJECTED | {reject_findings}")
             return {
                 "verdict": "SKIP",
                 "adjusted_confidence": confidence * 0.5,
-                "reasoning": f"L3 senior panel rejected ({l3_approved}/{l3_total} approve, need {l3_min}): {reject_findings}",
+                "reasoning": f"L3 senior panel rejected ({l3_approved}/{l3_total} approve, need {effective_l3_min}): {reject_findings}",
                 "l2_results": l2_results, "l3_results": l3_results, "level": 3,
             }
 
