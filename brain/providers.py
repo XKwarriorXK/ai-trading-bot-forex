@@ -65,6 +65,7 @@ class AIProvider:
         self.circuit_breakers = {}
         self.token_budget = TokenBudget()
         self._init_groq()
+        self._init_gemini()
 
     def _init_groq(self):
         config = AI_PROVIDERS.get("groq", {})
@@ -77,6 +78,21 @@ class AIProvider:
                 logger.info(f"Groq provider initialized — models: {list(config['models'].keys())}")
             except ImportError:
                 logger.warning("groq package not installed")
+
+    def _init_gemini(self):
+        config = AI_PROVIDERS.get("gemini", {})
+        if config.get("api_key"):
+            try:
+                from openai import OpenAI
+                self.clients["gemini"] = OpenAI(
+                    api_key=config["api_key"],
+                    base_url=config["base_url"],
+                )
+                self.models["gemini"] = config["models"]
+                self.circuit_breakers["gemini"] = CircuitBreaker()
+                logger.info(f"Gemini provider initialized — models: {list(config['models'].keys())}")
+            except ImportError:
+                logger.warning("openai package not installed — needed for Gemini")
 
     def call(self, model_key: str, prompt: str, system_prompt: str = "",
              priority: str = "medium", max_tokens: int = 1024,

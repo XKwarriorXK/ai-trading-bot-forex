@@ -20,28 +20,49 @@ AI_PROVIDERS = {
         },
         "base_url": "https://api.groq.com/openai/v1",
     },
+    "gemini": {
+        "api_key": os.getenv("GEMINI_API_KEY"),
+        "models": {
+            "flash": "gemini-2.5-flash",
+            "pro": "gemini-2.5-pro",
+        },
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+    },
 }
 
 TASK_ROUTING = {
-    "market_analysis":  ["groq:gpt120", "groq:fast", "groq:small"],
-    "trade_decision":   ["groq:gpt120", "groq:reasoning", "groq:small"],
-    "risk_assessment":  ["groq:gpt120", "groq:reasoning", "groq:small"],
-    "sentiment":        ["groq:gpt20", "groq:fast", "groq:small"],
-    "reflection":       ["groq:gpt120", "groq:reasoning", "groq:small"],
-    "regime_detection": ["groq:gpt20", "groq:fast", "groq:small"],
-    "debate":           ["groq:gpt120", "groq:fast", "groq:small"],
-    "strategy_select":  ["groq:gpt20", "groq:fast", "groq:small"],
-    "macro_analysis":   ["groq:gpt120", "groq:fast", "groq:small"],
+    "market_analysis":  ["groq:gpt120", "gemini:flash", "groq:fast"],
+    "trade_decision":   ["gemini:pro", "groq:gpt120", "groq:fast"],
+    "risk_assessment":  ["groq:gpt120", "gemini:flash", "groq:fast"],
+    "sentiment":        ["groq:gpt20", "gemini:flash", "groq:fast"],
+    "reflection":       ["gemini:pro", "groq:gpt120", "groq:fast"],
+    "regime_detection": ["groq:gpt20", "gemini:flash", "groq:fast"],
+    "debate":           ["gemini:pro", "groq:gpt120", "groq:fast"],
+    "strategy_select":  ["groq:gpt20", "gemini:flash", "groq:fast"],
+    "macro_analysis":   ["gemini:pro", "groq:gpt120", "groq:fast"],
 }
 
+# L2 Fast Screening → L3 Senior Panel → L4 Final Approver
 APPROVAL_CHAIN = {
-    "level_2_reviewers": [
-        {"provider": "groq", "model": "gpt120", "role": "technical_expert"},
-        {"provider": "groq", "model": "gpt20", "role": "structure_expert"},
-        {"provider": "groq", "model": "small", "role": "risk_expert"},
-    ],
-    "level_3_approver": {"provider": "groq", "model": "fast"},
-    "min_approvals": 2,
+    "level_2": {
+        "reviewers": [
+            {"provider": "groq", "model": "gpt20", "role": "trend_screener"},
+            {"provider": "groq", "model": "small", "role": "momentum_screener"},
+            {"provider": "groq", "model": "fast", "role": "risk_screener"},
+        ],
+        "min_pass": 2,
+    },
+    "level_3": {
+        "reviewers": [
+            {"provider": "groq", "model": "gpt120", "role": "senior_technical"},
+            {"provider": "gemini", "model": "flash", "role": "senior_structure"},
+        ],
+        "min_pass": 2,
+    },
+    "level_4": {
+        "provider": "gemini",
+        "model": "pro",
+    },
 }
 
 CIRCUIT_BREAKER = {

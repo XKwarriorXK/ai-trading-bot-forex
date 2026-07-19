@@ -1,15 +1,21 @@
 """
-3-Level Trade Approval Chain — institutional-grade validation.
+Multi-Level Trade Approval Chain — institutional-grade validation.
 
-Level 1: Strategy ensemble (11 strategies) produces A+ signal
-Level 2: 3 AI sub-approvers (different models) independently review
-         - GPT-OSS 120B: Technical Expert (largest, most thorough)
-         - GPT-OSS 20B: Structure Expert (fast, different architecture)
-         - Llama 3.1 8B: Risk Expert (conservative, quick)
-         Need 2/3 to approve. Each model has separate rate limits.
-Level 3: Final Approver (Llama 3.3 70B) reviews everything —
-         all expert opinions, why it hit A+, what additional data
-         they sourced. Makes the final EXECUTE or REJECT call.
+Level 0: Data Validation (spread, session, holidays — pipeline handles)
+Level 1: Strategy Ensemble (11 strategies, 7 categories, A+ grade)
+Level 2: Fast Screening — 3 Groq models, quick sanity checks
+         - GPT-OSS 20B: Trend screener
+         - Llama 3.1 8B: Momentum screener
+         - Llama 3.3 70B: Risk screener
+         Need 2/3 to pass.
+Level 3: Senior Panel — 2 models do deep analysis
+         - GPT-OSS 120B: Senior technical analyst
+         - Gemini 2.5 Flash: Senior structure analyst
+         Need 2/2 (both must agree).
+Level 4: Final Approver — best model makes the call
+         - Gemini 2.5 Pro: Head trader
+         Sees all L2 + L3 findings. EXECUTE / REJECT / WAIT.
+Level 5: Risk Engine (hard limits — pipeline handles after debate)
 """
 import logging
 from brain.providers import AIProvider
@@ -102,53 +108,85 @@ def _build_context(instrument, tech_result):
     )
 
 
-REVIEWER_PROMPTS = {
-    "technical_expert": {
+# ── LEVEL 2: FAST SCREENING ─────────────────────────────────────────
+L2_PROMPTS = {
+    "trend_screener": {
+        "system": "You are a trend analyst. Quick yes/no only. Be concise.",
+        "prompt": (
+            "QUICK SCREEN: {signal} {instrument}\n\n"
+            "{context}\n\n"
+            "Does the TREND support this {signal}?\n"
+            "Check EMA alignment, ADX strength, and regime.\n"
+            "Respond ONLY in JSON:\n"
+            "{{\"pass\": true or false, \"flag\": \"one sentence why\"}}"
+        ),
+    },
+    "momentum_screener": {
+        "system": "You are a momentum analyst. Quick yes/no only. Be concise.",
+        "prompt": (
+            "QUICK SCREEN: {signal} {instrument}\n\n"
+            "{context}\n\n"
+            "Does MOMENTUM support this {signal}?\n"
+            "Check RSI, MACD histogram direction, Stochastic position.\n"
+            "Respond ONLY in JSON:\n"
+            "{{\"pass\": true or false, \"flag\": \"one sentence why\"}}"
+        ),
+    },
+    "risk_screener": {
+        "system": "You are a risk screener. Flag red flags only. Be concise.",
+        "prompt": (
+            "QUICK SCREEN: {signal} {instrument}\n\n"
+            "{context}\n\n"
+            "Any OBVIOUS RED FLAGS that should kill this trade?\n"
+            "Check session, news, spread, volatility extremes, R:R ratio.\n"
+            "Respond ONLY in JSON:\n"
+            "{{\"pass\": true or false, \"flag\": \"one sentence why\"}}"
+        ),
+    },
+}
+
+
+# ── LEVEL 3: SENIOR PANEL ───────────────────────────────────────────
+L3_PROMPTS = {
+    "senior_technical": {
         "system": (
             "You are a senior technical analyst at a prop firm. You ONLY approve "
-            "trades where indicators genuinely confirm the signal direction. "
-            "You source additional indicator insights beyond what's provided."
+            "trades where indicators genuinely confirm the signal direction."
         ),
         "prompt": (
-            "ROLE: Technical Expert — Level 2 Reviewer\n\n"
+            "SENIOR REVIEW: {signal} {instrument} | Grade {grade}\n\n"
             "{context}\n\n"
-            "YOUR JOB: Independently verify the technical case. Check:\n"
-            "1. RSI — is it confirming direction? (BUY: RSI 40-65 is ideal entry zone, >75 = overextended. "
-            "SELL: RSI 35-60 is ideal, <25 = overextended)\n"
-            "2. MACD — is histogram expanding in signal direction? Shrinking = momentum dying\n"
-            "3. ADX — is trend strength sufficient? Below 20 = no trend, breakout likely to fail. "
-            "Above 25 = confirmed trend\n"
-            "4. Stochastic — any hidden divergence between price and stochastic?\n"
-            "5. EMA alignment — is price above EMA 50 and 200 for BUY, below for SELL?\n"
-            "6. ATR — is volatility sufficient for a meaningful move?\n\n"
-            "Based on ALL indicators, give your verdict.\n"
+            "=== L2 SCREENING RESULTS ===\n{l2_summary}\n\n"
+            "YOUR JOB — Deep technical verification:\n"
+            "1. RSI confirming? (BUY: 40-65 ideal, >75 overextended. SELL: 35-60, <25 overextended)\n"
+            "2. MACD histogram expanding in signal direction?\n"
+            "3. ADX > 25 = confirmed trend? < 20 = no trend?\n"
+            "4. EMA alignment clean? Price relation to 50 & 200?\n"
+            "5. R:R at least 1:2? SL/TP placement logical?\n"
+            "6. Any L2 screening flags that need deeper investigation?\n\n"
             "Respond in JSON:\n"
             "{{\"approve\": true or false, "
             "\"confidence_adjustment\": -0.10 to +0.05, "
             "\"key_finding\": \"one sentence with specific numbers\", "
-            "\"additional_data\": \"any extra indicator insight you derived\"}}"
+            "\"additional_data\": \"deeper insight you derived\"}}"
         ),
     },
-    "structure_expert": {
+    "senior_structure": {
         "system": (
-            "You are a market structure analyst specializing in institutional order flow. "
-            "You verify that price is at a significant structural level before approving entry. "
-            "You think in terms of supply/demand zones, order blocks, and liquidity."
+            "You are a market structure analyst at a prop firm specializing in "
+            "institutional order flow, supply/demand zones, and liquidity."
         ),
         "prompt": (
-            "ROLE: Structure Expert — Level 2 Reviewer\n\n"
+            "SENIOR REVIEW: {signal} {instrument} | Grade {grade}\n\n"
             "{context}\n\n"
-            "YOUR JOB: Verify the structural case. Check:\n"
-            "1. Is price at or near a key support/resistance level for the signal direction?\n"
-            "2. Does the market structure bias (HH/HL for bullish, LH/LL for bearish) MATCH "
-            "the signal direction? A BUY in bearish structure = high risk\n"
-            "3. Is entry chasing? If price already moved significantly from the key level, "
-            "the best entry is gone\n"
-            "4. Where is the realistic take-profit based on the next structural level?\n"
-            "5. Does the risk-to-reward make sense? Entry to stop vs entry to target — "
-            "minimum 1:2 required\n"
-            "6. Any liquidity trap risk? (stop hunt below support before reversal)\n\n"
-            "Based on structure analysis, give your verdict.\n"
+            "=== L2 SCREENING RESULTS ===\n{l2_summary}\n\n"
+            "YOUR JOB — Deep structural verification:\n"
+            "1. Price at key support/resistance for this direction?\n"
+            "2. Structure bias (HH/HL=bullish, LH/LL=bearish) matches signal?\n"
+            "3. Entry chasing? Too far from the key level?\n"
+            "4. SL placement makes structural sense?\n"
+            "5. R:R minimum 1:2 to next structural level?\n"
+            "6. Liquidity trap risk? Stop hunt potential?\n\n"
             "Respond in JSON:\n"
             "{{\"approve\": true or false, "
             "\"confidence_adjustment\": -0.10 to +0.05, "
@@ -156,56 +194,34 @@ REVIEWER_PROMPTS = {
             "\"additional_data\": \"structural insight you derived\"}}"
         ),
     },
-    "risk_expert": {
-        "system": (
-            "You are the risk manager at a prop firm with a 2% daily loss limit. "
-            "Your job is to protect capital. You reject trades that have hidden risks "
-            "even if the technical setup looks clean. You think about what could go wrong."
-        ),
-        "prompt": (
-            "ROLE: Risk Expert — Level 2 Reviewer\n\n"
-            "{context}\n\n"
-            "YOUR JOB: Stress-test this trade for hidden risks. Check:\n"
-            "1. Session timing — is this during a high-volume session overlap? "
-            "Dead hours = low liquidity = bad fills and false breakouts\n"
-            "2. News risk — any high-impact events (FOMC, NFP, CPI) that could "
-            "invalidate the entire setup?\n"
-            "3. Correlation exposure — would this trade stack risk on top of "
-            "existing positions in correlated pairs?\n"
-            "4. Volatility regime — is ATR unusually high (potential reversal exhaustion) "
-            "or unusually low (potential breakout but also potential chop)?\n"
-            "5. Is this the kind of trade that looks good on paper but fails in practice? "
-            "(e.g., buying at resistance, selling at support, fading a strong trend)\n"
-            "6. Weekend/holiday risk — is a market close approaching that could gap?\n\n"
-            "Based on risk analysis, give your verdict.\n"
-            "Respond in JSON:\n"
-            "{{\"approve\": true or false, "
-            "\"confidence_adjustment\": -0.10 to +0.05, "
-            "\"key_finding\": \"one sentence on biggest risk or why it's clean\", "
-            "\"additional_data\": \"risk factor you identified\"}}"
-        ),
-    },
 }
 
-FINAL_APPROVER_PROMPT = (
-    "You are the HEAD TRADER making the final execution decision.\n\n"
-    "TRADE: {signal} {instrument} | Grade {grade} | {confidence:.0%}\n"
+
+# ── LEVEL 4: FINAL APPROVER ─────────────────────────────────────────
+L4_SYSTEM = (
+    "You are the head trader at an institutional prop firm. "
+    "You make the final execution decision. You have seen what the "
+    "screening panel and senior analysts found. Trust their data but "
+    "apply your own judgment. Protect capital above all."
+)
+
+L4_PROMPT = (
+    "FINAL DECISION: {signal} {instrument} | Grade {grade} | {confidence:.0%}\n"
     "Regime: {regime} | {num_categories} independent confluence categories\n\n"
-    "=== LEVEL 2 EXPERT REVIEWS ===\n"
-    "{expert_reviews}\n\n"
-    "=== APPROVAL STATUS ===\n"
-    "Approvals: {approvals}/{total} (need {min_needed})\n\n"
+    "=== LEVEL 2 SCREENING ({l2_pass}/{l2_total} passed) ===\n"
+    "{l2_summary}\n\n"
+    "=== LEVEL 3 SENIOR REVIEWS ({l3_pass}/{l3_total} approved) ===\n"
+    "{l3_summary}\n\n"
     "YOUR JOB as final approver:\n"
-    "1. Review WHY each expert approved or rejected\n"
-    "2. Check if rejecting experts found a REAL problem or were being overly cautious\n"
-    "3. Weigh the technical, structural, and risk opinions together\n"
-    "4. If 2/3 approved and no dealbreaker was found → APPROVE\n"
-    "5. If a rejecting expert found a concrete data-backed problem → REJECT even if 2/3 approved\n"
-    "6. Set final confidence based on all expert adjustments\n\n"
+    "1. Did L2 screeners flag anything L3 seniors didn't address?\n"
+    "2. Are L3 findings thorough and data-backed?\n"
+    "3. If both L3 approved — any hidden risk they both missed?\n"
+    "4. If any L3 rejected with a concrete finding — weigh it heavily\n"
+    "5. Set final confidence based on ALL evidence\n\n"
     "Respond in JSON:\n"
     "{{\"verdict\": \"BUY\" or \"SELL\" or \"SKIP\", "
     "\"adjusted_confidence\": 0.0 to 0.95, "
-    "\"reasoning\": \"one sentence citing specific expert findings\"}}"
+    "\"reasoning\": \"one sentence citing specific L2/L3 findings\"}}"
 )
 
 
@@ -214,36 +230,113 @@ class DebateAgent:
         self.router = router
         self.provider = provider or (router.provider if router else None)
 
+    def _call_reviewer(self, model_key, provider_name, prompt, system):
+        return self.provider.call_json(
+            model_key, prompt, system,
+            priority="high", provider_name=provider_name,
+        )
+
+    def _format_l2_summary(self, results):
+        if not results:
+            return "No screening data available."
+        lines = []
+        for r in results:
+            status = "PASS" if r["passed"] else "FAIL"
+            lines.append(f"  {r['role']} ({r['provider']}): {status} — {r['flag']}")
+        return "\n".join(lines)
+
+    def _format_l3_summary(self, results):
+        if not results:
+            return "No senior review data available."
+        lines = []
+        for r in results:
+            status = "APPROVED" if r["approved"] else "REJECTED"
+            lines.append(
+                f"  {r['role']} ({r['provider']}): {status}\n"
+                f"    Finding: {r['key_finding']}\n"
+                f"    Conf adj: {r['confidence_adjustment']:+.0%}\n"
+                f"    Extra: {r.get('additional_data', 'None')}"
+            )
+        return "\n".join(lines)
+
     def debate(self, instrument: str, tech_result: dict) -> dict:
         context = _build_context(instrument, tech_result)
         signal = tech_result.get("signal", "SKIP")
         confidence = tech_result.get("confidence", 0)
+        grade = tech_result.get("grade", "?")
 
-        # === LEVEL 2: Expert Panel (3 different AI models) ===
-        reviewers = APPROVAL_CHAIN["level_2_reviewers"]
-        min_approvals = APPROVAL_CHAIN["min_approvals"]
-        expert_results = []
+        # ── LEVEL 2: FAST SCREENING ──────────────────────────────
+        l2_config = APPROVAL_CHAIN["level_2"]
+        l2_results = []
 
-        for reviewer in reviewers:
+        for reviewer in l2_config["reviewers"]:
             role = reviewer["role"]
-            provider_name = reviewer["provider"]
-            model_key = reviewer["model"]
-            prompts = REVIEWER_PROMPTS.get(role, {})
-
+            prov = reviewer["provider"]
+            model = reviewer["model"]
+            prompts = L2_PROMPTS.get(role, {})
             if not prompts:
-                logger.warning(f"No prompt template for role: {role}")
                 continue
 
-            prompt = prompts["prompt"].format(context=context)
-            system = prompts["system"]
-
-            logger.info(f"LEVEL 2 | {role} | Calling {provider_name}:{model_key}")
-
-            result = self.provider.call_json(
-                model_key, prompt, system,
-                priority="high",
-                provider_name=provider_name,
+            prompt = prompts["prompt"].format(
+                context=context, signal=signal, instrument=instrument,
             )
+            logger.info(f"L2 SCREEN | {role} | {prov}:{model}")
+
+            result = self._call_reviewer(model, prov, prompt, prompts["system"])
+
+            if result["success"] and result.get("parsed"):
+                parsed = result["parsed"]
+                passed = parsed.get("pass", False)
+                flag = parsed.get("flag", "No comment")
+                logger.info(f"L2 SCREEN | {role} ({prov}) | {'PASS' if passed else 'FAIL'} | {flag}")
+                l2_results.append({
+                    "role": role, "provider": prov,
+                    "passed": passed, "flag": flag,
+                })
+            else:
+                logger.warning(f"L2 SCREEN | {role} ({prov}) | API FAILED — excluded")
+
+        l2_passed = sum(1 for r in l2_results if r["passed"])
+        l2_failed = sum(1 for r in l2_results if not r["passed"])
+        l2_total = len(l2_results)
+        l2_min = l2_config["min_pass"]
+
+        logger.info(f"L2 COMPLETE | {l2_passed} pass, {l2_failed} fail, {len(l2_config['reviewers']) - l2_total} unavailable (need {l2_min})")
+
+        if l2_total == 0:
+            logger.warning("L2 | No screeners available — passing with haircut")
+            return self._haircut_result(signal, confidence, "No L2 screeners available", 2)
+
+        if l2_passed < l2_min:
+            fail_flags = "; ".join(r["flag"] for r in l2_results if not r["passed"])
+            logger.info(f"L2 REJECTED | {fail_flags}")
+            return {
+                "verdict": "SKIP",
+                "adjusted_confidence": confidence * 0.5,
+                "reasoning": f"L2 screening failed ({l2_passed}/{l2_total} pass, need {l2_min}): {fail_flags}",
+                "l2_results": l2_results, "l3_results": [], "level": 2,
+            }
+
+        # ── LEVEL 3: SENIOR PANEL ────────────────────────────────
+        l2_summary = self._format_l2_summary(l2_results)
+        l3_config = APPROVAL_CHAIN["level_3"]
+        l3_results = []
+
+        for reviewer in l3_config["reviewers"]:
+            role = reviewer["role"]
+            prov = reviewer["provider"]
+            model = reviewer["model"]
+            prompts = L3_PROMPTS.get(role, {})
+            if not prompts:
+                continue
+
+            prompt = prompts["prompt"].format(
+                context=context, signal=signal, instrument=instrument,
+                grade=grade, l2_summary=l2_summary,
+            )
+            logger.info(f"L3 SENIOR | {role} | {prov}:{model}")
+
+            result = self._call_reviewer(model, prov, prompt, prompts["system"])
 
             if result["success"] and result.get("parsed"):
                 parsed = result["parsed"]
@@ -251,101 +344,60 @@ class DebateAgent:
                 conf_adj = parsed.get("confidence_adjustment", 0)
                 finding = parsed.get("key_finding", "No finding")
                 extra = parsed.get("additional_data", "")
-
                 logger.info(
-                    f"LEVEL 2 | {role} ({provider_name}) | "
+                    f"L3 SENIOR | {role} ({prov}) | "
                     f"{'APPROVED' if approved else 'REJECTED'} | "
                     f"Conf adj: {conf_adj:+.0%} | {finding}"
                 )
-
-                expert_results.append({
-                    "role": role,
-                    "provider": provider_name,
+                l3_results.append({
+                    "role": role, "provider": prov,
                     "approved": approved,
                     "confidence_adjustment": conf_adj,
                     "key_finding": finding,
                     "additional_data": extra,
                 })
             else:
-                logger.warning(f"LEVEL 2 | {role} ({provider_name}) | FAILED — excluded from vote")
+                logger.warning(f"L3 SENIOR | {role} ({prov}) | API FAILED — excluded")
 
-        approvals = sum(1 for e in expert_results if e["approved"])
-        rejections = sum(1 for e in expert_results if not e["approved"])
-        total = len(expert_results)
+        l3_approved = sum(1 for r in l3_results if r["approved"])
+        l3_rejected = sum(1 for r in l3_results if not r["approved"])
+        l3_total = len(l3_results)
+        l3_min = l3_config["min_pass"]
 
-        logger.info(f"LEVEL 2 COMPLETE | {approvals} approved, {rejections} rejected, {len(reviewers) - total} unavailable")
+        logger.info(f"L3 COMPLETE | {l3_approved} approved, {l3_rejected} rejected, {len(l3_config['reviewers']) - l3_total} unavailable (need {l3_min})")
 
-        if total == 0:
-            logger.warning("LEVEL 2 | No reviewers available — passing with confidence haircut")
-            return {
-                "verdict": signal,
-                "adjusted_confidence": confidence * 0.85,
-                "reasoning": "No AI reviewers available — original signal with 15% haircut",
-                "expert_results": [],
-                "level": 2,
-            }
+        if l3_total == 0:
+            logger.warning("L3 | No seniors available — using L2 consensus with haircut")
+            return self._haircut_result(signal, confidence, "No L3 seniors available — L2 passed", 3)
 
-        if rejections > approvals:
-            reject_list = [e for e in expert_results if not e["approved"]]
-            reject_reasons = "; ".join(e["key_finding"] for e in reject_list)
-            logger.info(f"LEVEL 2 REJECTED | {reject_reasons}")
+        if l3_approved < l3_min:
+            reject_findings = "; ".join(r["key_finding"] for r in l3_results if not r["approved"])
+            logger.info(f"L3 REJECTED | {reject_findings}")
             return {
                 "verdict": "SKIP",
                 "adjusted_confidence": confidence * 0.5,
-                "reasoning": f"Expert panel rejected ({approvals} approve, {rejections} reject): {reject_reasons}",
-                "expert_results": expert_results,
-                "level": 2,
+                "reasoning": f"L3 senior panel rejected ({l3_approved}/{l3_total} approve, need {l3_min}): {reject_findings}",
+                "l2_results": l2_results, "l3_results": l3_results, "level": 3,
             }
 
-        if approvals == 0 and rejections == 0:
-            logger.warning("LEVEL 2 | All reviewers failed — passing with confidence haircut")
-            return {
-                "verdict": signal,
-                "adjusted_confidence": confidence * 0.85,
-                "reasoning": "All AI reviewers unavailable — original signal with 15% haircut",
-                "expert_results": [],
-                "level": 2,
-            }
+        # ── LEVEL 4: FINAL APPROVER ──────────────────────────────
+        l3_summary = self._format_l3_summary(l3_results)
+        l4_config = APPROVAL_CHAIN["level_4"]
 
-        # === LEVEL 3: Final Approver ===
-        expert_reviews_text = ""
-        for e in expert_results:
-            status = "APPROVED" if e["approved"] else "REJECTED"
-            expert_reviews_text += (
-                f"\n{e['role'].upper()} ({e['provider']}) — {status}\n"
-                f"  Finding: {e['key_finding']}\n"
-                f"  Confidence adjustment: {e['confidence_adjustment']:+.0%}\n"
-                f"  Additional data: {e.get('additional_data', 'None')}\n"
-            )
-
-        final_prompt = FINAL_APPROVER_PROMPT.format(
-            signal=signal,
-            instrument=instrument,
-            grade=tech_result.get("grade", "?"),
+        final_prompt = L4_PROMPT.format(
+            signal=signal, instrument=instrument, grade=grade,
             confidence=confidence,
             regime=tech_result.get("regime", "unknown"),
             num_categories=tech_result.get("num_categories", 0),
-            expert_reviews=expert_reviews_text,
-            approvals=approvals,
-            total=total,
-            min_needed=min_approvals,
+            l2_pass=l2_passed, l2_total=l2_total, l2_summary=l2_summary,
+            l3_pass=l3_approved, l3_total=l3_total, l3_summary=l3_summary,
         )
 
-        level3 = APPROVAL_CHAIN["level_3_approver"]
-        logger.info(f"LEVEL 3 | Final approver | Calling {level3['provider']}:{level3['model']}")
+        prov = l4_config["provider"]
+        model = l4_config["model"]
+        logger.info(f"L4 FINAL | Head trader | {prov}:{model}")
 
-        final_result = self.provider.call_json(
-            level3["model"], final_prompt,
-            system_prompt=(
-                "You are the head trader at an institutional prop firm. "
-                "You have the final say. Your experts have reviewed this trade — "
-                "trust their specific findings but make your own judgment. "
-                "If a rejecting expert found a concrete problem, weigh it heavily "
-                "even if the majority approved. Protect capital above all."
-            ),
-            priority="high",
-            provider_name=level3["provider"],
-        )
+        final_result = self._call_reviewer(model, prov, final_prompt, L4_SYSTEM)
 
         if final_result["success"] and final_result.get("parsed"):
             parsed = final_result["parsed"]
@@ -353,27 +405,30 @@ class DebateAgent:
             adj_conf = parsed.get("adjusted_confidence", confidence * 0.8)
             reasoning = parsed.get("reasoning", "")
 
-            logger.info(
-                f"LEVEL 3 FINAL | {instrument} | Verdict: {verdict} | "
-                f"Conf: {adj_conf:.0%} | {reasoning}"
-            )
+            logger.info(f"L4 FINAL | {instrument} | {verdict} | Conf: {adj_conf:.0%} | {reasoning}")
 
             return {
                 "verdict": verdict,
                 "adjusted_confidence": adj_conf,
                 "reasoning": reasoning,
-                "expert_results": expert_results,
-                "level": 3,
-                "approvals": f"{approvals}/{total}",
+                "l2_results": l2_results,
+                "l3_results": l3_results,
+                "level": 4,
             }
 
-        logger.warning(f"LEVEL 3 | Final approver failed — using Level 2 consensus")
-        avg_adj = sum(e["confidence_adjustment"] for e in expert_results if e["approved"]) / max(approvals, 1)
+        logger.warning("L4 | Final approver failed — using L3 consensus")
+        avg_adj = sum(r["confidence_adjustment"] for r in l3_results if r["approved"]) / max(l3_approved, 1)
         return {
             "verdict": signal,
             "adjusted_confidence": max(0, min(confidence + avg_adj, 0.95)),
-            "reasoning": f"Final approver unavailable — Level 2 consensus ({approvals}/{total} approved)",
-            "expert_results": expert_results,
-            "level": 2,
-            "approvals": f"{approvals}/{total}",
+            "reasoning": f"L4 unavailable — L3 consensus ({l3_approved}/{l3_total} approved)",
+            "l2_results": l2_results, "l3_results": l3_results, "level": 3,
+        }
+
+    def _haircut_result(self, signal, confidence, reason, level):
+        return {
+            "verdict": signal,
+            "adjusted_confidence": confidence * 0.85,
+            "reasoning": f"{reason} — passing with 15% haircut",
+            "l2_results": [], "l3_results": [], "level": level,
         }
