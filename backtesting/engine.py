@@ -38,11 +38,10 @@ class BacktestEngine:
         self.pip_value = 10 ** self.spec["pip_location"]
 
         if style == "swing":
-            base = SWING_EXIT
+            self.exit_params = dict(SWING_EXIT)
         else:
-            base = DEFAULT_EXIT
-        profile = PAIR_PROFILES.get(instrument, {})
-        self.exit_params = {k: profile.get(k, base.get(k, DEFAULT_EXIT[k])) for k in base}
+            profile = PAIR_PROFILES.get(instrument, {})
+            self.exit_params = {k: profile.get(k, DEFAULT_EXIT[k]) for k in DEFAULT_EXIT}
 
         self.trades = []
         self.equity_curve = []
