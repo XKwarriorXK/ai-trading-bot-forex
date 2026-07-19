@@ -127,7 +127,7 @@ RISK = {
     "max_daily_loss_pct": 2.0,
     "max_position_pct": 2.0,
     "max_trades_per_day": 6,
-    "risk_per_trade_pct": 1.0,
+    "risk_per_trade_pct": 3.0,
     "default_stop_loss_pips": 30,
     "default_take_profit_pips": 60,
     "max_open_trades": 3,
