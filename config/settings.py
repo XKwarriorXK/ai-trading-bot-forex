@@ -55,7 +55,7 @@ APPROVAL_CHAIN = {
     "level_3": {
         "reviewers": [
             {"provider": "groq", "model": "gpt120", "role": "senior_technical"},
-            {"provider": "groq", "model": "fast", "role": "senior_structure"},
+            {"provider": "groq", "model": "gpt20", "role": "senior_structure"},
         ],
         "min_pass": 2,
     },
