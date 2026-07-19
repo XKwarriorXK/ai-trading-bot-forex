@@ -155,6 +155,47 @@ class StructureGate:
         }
 
 
+class ADXGate:
+    """ADX > 25 trend strength — don't trade choppy, trendless markets."""
+    name = "adx_gate"
+    is_gate = True
+
+    def evaluate(self, df, regime: str) -> dict:
+        if len(df) < 30:
+            return {"signal": "SKIP", "confidence": 0, "reason": "Need 30 bars for ADX"}
+
+        high = df["high"]
+        low = df["low"]
+        close = df["close"]
+
+        adx = ta.trend.adx(high, low, close, window=14)
+        di_plus = ta.trend.adx_pos(high, low, close, window=14)
+        di_minus = ta.trend.adx_neg(high, low, close, window=14)
+
+        if pd.isna(adx.iloc[-1]):
+            return {"signal": "SKIP", "confidence": 0, "reason": "ADX not computed"}
+
+        adx_val = float(adx.iloc[-1])
+
+        if adx_val < 25:
+            return {"signal": "SKIP", "confidence": 0,
+                    "reason": f"ADX {adx_val:.1f} < 25 — no trend"}
+
+        di_p = float(di_plus.iloc[-1]) if not pd.isna(di_plus.iloc[-1]) else 0
+        di_m = float(di_minus.iloc[-1]) if not pd.isna(di_minus.iloc[-1]) else 0
+
+        signal = "BUY" if di_p > di_m else "SELL"
+        strength = min(0.65 + (adx_val - 25) * 0.005, 0.90)
+
+        return {
+            "signal": signal,
+            "confidence": round(strength, 4),
+            "reasons": [f"ADX {adx_val:.1f} — strong trend (DI+ {di_p:.1f} / DI- {di_m:.1f})"],
+            "strategy": self.name,
+            "adx": adx_val,
+        }
+
+
 class FairValueGapStrategy:
     """Entry at Fair Value Gaps — institutional imbalance zones in trend direction."""
     name = "fair_value_gap"
@@ -469,7 +510,7 @@ class LiquiditySweepStrategy:
 
 
 # Strategy instances
-SWING_GATES = [MATrendGate(), StructureGate()]
+SWING_GATES = [MATrendGate(), StructureGate(), ADXGate()]
 SWING_ENTRIES = [
     FairValueGapStrategy(),
     DivergenceStrategy(),

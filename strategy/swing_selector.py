@@ -18,7 +18,7 @@ Only entry signals matching the gate direction are counted.
 """
 import logging
 from strategy.swing_strategies import (
-    MATrendGate, StructureGate,
+    MATrendGate, StructureGate, ADXGate,
     FairValueGapStrategy, DivergenceStrategy,
     TrendPullbackStrategy, LiquiditySweepStrategy,
 )
@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 SWING_CATEGORY = {
     "ma_trend_gate": "trend_gate",
     "structure_gate": "structure_gate",
+    "adx_gate": "strength_gate",
     "fair_value_gap": "entry_imbalance",
     "divergence": "entry_momentum",
     "trend_pullback": "entry_retracement",
@@ -41,6 +42,7 @@ class SwingSelector:
     def __init__(self):
         self.ma_gate = MATrendGate()
         self.struct_gate = StructureGate()
+        self.adx_gate = ADXGate()
         self.entry_strategies = [
             FairValueGapStrategy(),
             DivergenceStrategy(),
@@ -70,6 +72,13 @@ class SwingSelector:
                     "reason": f"Structure ({struct['signal']}) conflicts with MA trend ({allowed})",
                     "votes": []}
 
+        # === GATE 3: ADX TREND STRENGTH ===
+        adx = self.adx_gate.evaluate(df, regime)
+        if adx["signal"] == "SKIP":
+            return {"signal": "SKIP", "confidence": 0,
+                    "reason": f"ADX gate blocked: {adx.get('reason', 'weak trend')}",
+                    "votes": []}
+
         # === ENTRY SIGNALS ===
         entry_votes = []
         all_reasons = list(ma.get("reasons", [])) + list(struct.get("reasons", []))
@@ -96,10 +105,13 @@ class SwingSelector:
                     "votes": entry_votes}
 
         # === CONFIDENCE ===
-        gate_conf = (ma["confidence"] + struct["confidence"]) / 2
+        gate_conf = (ma["confidence"] + struct["confidence"] + adx["confidence"]) / 3
         entry_conf = sum(v["confidence"] for v in entry_votes) / len(entry_votes)
 
-        final_conf = gate_conf * 0.40 + entry_conf * 0.60
+        final_conf = gate_conf * 0.45 + entry_conf * 0.55
+
+        if adx.get("adx", 0) >= 35:
+            final_conf += 0.03
 
         if len(entry_votes) >= 3:
             final_conf += 0.05
@@ -126,9 +138,10 @@ class SwingSelector:
 
         categories = list(set(v["category"] for v in entry_votes))
 
+        adx_val = adx.get("adx", 0)
         logger.info(
             f"SWING {grade} | {allowed} | Conf: {final_conf:.0%} | "
-            f"Gates: MA+Structure | "
+            f"Gates: MA+Structure+ADX({adx_val:.0f}) | "
             f"Entries: {len(entry_votes)} ({', '.join(v['strategy'] for v in entry_votes)}) | "
             f"{grade_labels.get(grade, grade)}"
         )
@@ -144,6 +157,6 @@ class SwingSelector:
             "num_categories": len(categories),
             "reasons": all_reasons,
             "votes": entry_votes,
-            "gates_passed": ["ma_trend_gate", "structure_gate"],
+            "gates_passed": ["ma_trend_gate", "structure_gate", "adx_gate"],
             "structure": struct,
         }
