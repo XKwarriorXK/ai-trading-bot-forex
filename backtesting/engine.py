@@ -279,10 +279,10 @@ class BacktestEngine:
         if pos["at_breakeven"] and bar_idx < len(self.atr) and not pd.isna(self.atr.iloc[bar_idx]):
             atr_val = float(self.atr.iloc[bar_idx])
 
-            if self.style == "swing":
-                trail_multiplier = 2.0 if pos["tp2_hit"] else 3.0
+            if pos["tp2_hit"]:
+                trail_multiplier = 1.5
             else:
-                trail_multiplier = 1.5 if pos["tp2_hit"] else 2.0
+                trail_multiplier = 2.0
 
             trail_distance = atr_val * trail_multiplier
 

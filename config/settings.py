@@ -175,6 +175,6 @@ SWING_EXIT = {
     "tp1_r": 2.0, "tp1_pct": 0.25,
     "tp2_r": 3.5, "tp2_pct": 0.25,
     "tp3_r": 5.0, "tp3_pct": 0.25,
-    "adverse_r": 0.8, "adverse_bars": 10,
-    "time_stop_bars": 100, "time_stop_r": 0.3,
+    "adverse_r": 0.6, "adverse_bars": 6,
+    "time_stop_bars": 50, "time_stop_r": 0.2,
 }
