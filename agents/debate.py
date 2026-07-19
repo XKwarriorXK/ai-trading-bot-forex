@@ -304,8 +304,13 @@ class DebateAgent:
         logger.info(f"L2 COMPLETE | {l2_passed} pass, {l2_failed} fail, {len(l2_config['reviewers']) - l2_total} unavailable (need {l2_min})")
 
         if l2_total == 0:
-            logger.warning("L2 | No screeners available — passing with haircut")
-            return self._haircut_result(signal, confidence, "No L2 screeners available", 2)
+            logger.warning("L2 | No screeners available — BLOCKING trade")
+            return {
+                "verdict": "SKIP",
+                "adjusted_confidence": 0,
+                "reasoning": "L2 screeners unavailable — no trade without AI approval",
+                "l2_results": [], "l3_results": [], "level": 2,
+            }
 
         if l2_passed < l2_min:
             fail_flags = "; ".join(r["flag"] for r in l2_results if not r["passed"])
@@ -367,8 +372,13 @@ class DebateAgent:
         logger.info(f"L3 COMPLETE | {l3_approved} approved, {l3_rejected} rejected, {len(l3_config['reviewers']) - l3_total} unavailable (need {l3_min})")
 
         if l3_total == 0:
-            logger.warning("L3 | No seniors available — using L2 consensus with haircut")
-            return self._haircut_result(signal, confidence, "No L3 seniors available — L2 passed", 3)
+            logger.warning("L3 | No seniors available — BLOCKING trade")
+            return {
+                "verdict": "SKIP",
+                "adjusted_confidence": 0,
+                "reasoning": "L3 seniors unavailable — no trade without senior review",
+                "l2_results": l2_results, "l3_results": [], "level": 3,
+            }
 
         if l3_approved < l3_min:
             reject_findings = "; ".join(r["key_finding"] for r in l3_results if not r["approved"])
@@ -416,19 +426,11 @@ class DebateAgent:
                 "level": 4,
             }
 
-        logger.warning("L4 | Final approver failed — using L3 consensus")
-        avg_adj = sum(r["confidence_adjustment"] for r in l3_results if r["approved"]) / max(l3_approved, 1)
+        logger.warning("L4 | Final approver failed — BLOCKING trade")
         return {
-            "verdict": signal,
-            "adjusted_confidence": max(0, min(confidence + avg_adj, 0.95)),
-            "reasoning": f"L4 unavailable — L3 consensus ({l3_approved}/{l3_total} approved)",
-            "l2_results": l2_results, "l3_results": l3_results, "level": 3,
+            "verdict": "SKIP",
+            "adjusted_confidence": 0,
+            "reasoning": "L4 final approver unavailable — no trade without head trader sign-off",
+            "l2_results": l2_results, "l3_results": l3_results, "level": 4,
         }
 
-    def _haircut_result(self, signal, confidence, reason, level):
-        return {
-            "verdict": signal,
-            "adjusted_confidence": confidence * 0.85,
-            "reasoning": f"{reason} — passing with 15% haircut",
-            "l2_results": [], "l3_results": [], "level": level,
-        }

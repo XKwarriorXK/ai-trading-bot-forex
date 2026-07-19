@@ -120,11 +120,11 @@ class TradePipeline:
             result["news"] = news_risk
             confidence += news_risk.get("confidence_modifier", 0)
 
-        # 8. AI DEBATE — only on A+ setups (85%+ confidence)
-        #    The brain reviews the best trades, not every signal
-        AI_DEBATE_THRESHOLD = 0.85
+        # 8. AI DEBATE — ALL tradeable signals must pass the full chain
+        #    No trade executes without L4 final approver sign-off
+        AI_DEBATE_THRESHOLD = 0.55
         if self.debate and confidence >= AI_DEBATE_THRESHOLD:
-            logger.info(f"AI DEBATE | {instrument} | Conf {confidence:.0%} >= {AI_DEBATE_THRESHOLD:.0%} — requesting brain review")
+            logger.info(f"AI DEBATE | {instrument} | Conf {confidence:.0%} — sending to approval chain")
 
             price = price_data.get("bid", 0) if price_data else 0
             spread = price_data.get("spread", 0) if price_data else 0
@@ -174,7 +174,11 @@ class TradePipeline:
             confidence = debate_result.get("adjusted_confidence", confidence)
             result["debate"] = debate_result
         elif self.debate and confidence < AI_DEBATE_THRESHOLD:
-            logger.info(f"SKIP DEBATE | {instrument} | Conf {confidence:.0%} < {AI_DEBATE_THRESHOLD:.0%} — not A+ grade")
+            logger.info(f"SKIP DEBATE | {instrument} | Conf {confidence:.0%} — below tradeable threshold")
+        elif not self.debate:
+            result["reason"] = "AI chain not available — no trade without approval"
+            self._log_skip(instrument, result["reason"])
+            return result
 
         # Clamp confidence
         confidence = max(0, min(confidence, 0.95))
