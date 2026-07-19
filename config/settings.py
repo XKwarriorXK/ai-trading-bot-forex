@@ -23,7 +23,7 @@ AI_PROVIDERS = {
     "gemini": {
         "api_key": os.getenv("GEMINI_API_KEY"),
         "models": {
-            "flash": "gemini-2.0-flash",
+            "flash": "gemini-3.5-flash",
             "pro": "gemini-3.1-pro-preview",
         },
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -55,13 +55,13 @@ APPROVAL_CHAIN = {
     "level_3": {
         "reviewers": [
             {"provider": "groq", "model": "gpt120", "role": "senior_technical"},
-            {"provider": "gemini", "model": "flash", "role": "senior_structure"},
+            {"provider": "groq", "model": "fast", "role": "senior_structure"},
         ],
         "min_pass": 2,
     },
     "level_4": {
         "provider": "gemini",
-        "model": "pro",
+        "model": "flash",
     },
 }
 
