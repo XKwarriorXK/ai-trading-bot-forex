@@ -3,9 +3,11 @@ Strategy Selector — institutional-grade confluence scoring.
 11 strategies grouped into 6 independent confluence categories.
 Confidence rewards DIVERSITY of agreement, not just vote count.
 A+ requires 4+ independent categories agreeing — the real edge.
+Per-pair profiles override global thresholds when configured.
 """
 import logging
 from strategy.strategies import ALL_STRATEGIES
+from config.settings import PAIR_PROFILES
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +108,12 @@ class StrategySelector:
     def __init__(self):
         self.strategies = ALL_STRATEGIES
 
+    def _get_thresholds(self, instrument=None):
+        if instrument and instrument in PAIR_PROFILES:
+            p = PAIR_PROFILES[instrument]
+            return p.get("min_agreeing", MIN_AGREEING), p.get("min_categories", MIN_CATEGORIES)
+        return MIN_AGREEING, MIN_CATEGORIES
+
     def _get_grade(self, confidence):
         if confidence >= 0.85:
             return "A+"
@@ -115,7 +123,9 @@ class StrategySelector:
             return "B"
         return "C"
 
-    def _calc_confluence_confidence(self, votes):
+    def _calc_confluence_confidence(self, votes, min_agree=None):
+        if min_agree is None:
+            min_agree = MIN_AGREEING
         n = len(votes)
         avg_raw = sum(v["raw_confidence"] for v in votes) / n
         max_raw = max(v["raw_confidence"] for v in votes)
@@ -145,13 +155,15 @@ class StrategySelector:
             cat_weight_sum += CATEGORY_WEIGHT.get(cat, 0.05)
         weight_quality = min(cat_weight_sum / 0.80, 1.0) * 0.10
 
-        vote_bonus = max(0, (n - MIN_AGREEING)) * 0.02
+        vote_bonus = max(0, (n - min_agree)) * 0.02
 
         final = base + diversity_bonus + weight_quality + vote_bonus
 
         return round(min(final, 0.95), 4), avg_raw, num_categories, list(categories_hit)
 
-    def evaluate(self, df, regime: str) -> dict:
+    def evaluate(self, df, regime: str, instrument: str = None) -> dict:
+        min_agree, min_cats = self._get_thresholds(instrument)
+
         votes = []
         for strategy in self.strategies:
             try:
@@ -182,19 +194,19 @@ class StrategySelector:
         sell_votes = [v for v in votes if v["signal"] == "SELL"]
 
         for direction, dir_votes in [("BUY", buy_votes), ("SELL", sell_votes)]:
-            if len(dir_votes) < MIN_AGREEING:
+            if len(dir_votes) < min_agree:
                 continue
 
             categories_hit = set(v["category"] for v in dir_votes)
-            if len(categories_hit) < MIN_CATEGORIES:
+            if len(categories_hit) < min_cats:
                 return {
                     "signal": "SKIP",
                     "confidence": 0,
-                    "reason": f"{direction} has {len(dir_votes)} votes but only {len(categories_hit)} independent categories (need {MIN_CATEGORIES})",
+                    "reason": f"{direction} has {len(dir_votes)} votes but only {len(categories_hit)} independent categories (need {min_cats})",
                     "votes": votes,
                 }
 
-            final_conf, avg_raw, num_cats, cat_list = self._calc_confluence_confidence(dir_votes)
+            final_conf, avg_raw, num_cats, cat_list = self._calc_confluence_confidence(dir_votes, min_agree)
 
             if avg_raw < MIN_CONFIDENCE:
                 return {
@@ -241,6 +253,6 @@ class StrategySelector:
         return {
             "signal": "SKIP",
             "confidence": 0,
-            "reason": f"Not enough agreement (BUY:{len(buy_votes)} SELL:{len(sell_votes)}, need {MIN_AGREEING})",
+            "reason": f"Not enough agreement (BUY:{len(buy_votes)} SELL:{len(sell_votes)}, need {min_agree})",
             "votes": votes,
         }

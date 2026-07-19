@@ -1,13 +1,20 @@
 """
 Backtesting Engine — institutional-grade exit management.
 Partial profit scaling, time stops, adverse excursion, ATR trailing.
+Per-pair profiles override default exit parameters when configured.
 """
 import logging
 import numpy as np
 import pandas as pd
-from config.settings import INSTRUMENTS
+from config.settings import INSTRUMENTS, PAIR_PROFILES
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_EXIT = {
+    "tp1_r": 1.5, "tp1_pct": 0.33,
+    "adverse_r": 0.6, "adverse_bars": 3,
+    "time_stop_bars": 30, "time_stop_r": 0.3,
+}
 
 
 class BacktestEngine:
@@ -25,6 +32,9 @@ class BacktestEngine:
         self.timeframe = timeframe
         self.spec = INSTRUMENTS.get(instrument, INSTRUMENTS["EUR_USD"])
         self.pip_value = 10 ** self.spec["pip_location"]
+
+        profile = PAIR_PROFILES.get(instrument, {})
+        self.exit_params = {k: profile.get(k, DEFAULT_EXIT[k]) for k in DEFAULT_EXIT}
 
         self.trades = []
         self.equity_curve = []
@@ -101,12 +111,13 @@ class BacktestEngine:
         units = abs(signal.get("units", 1000))
         risk_pips = abs(entry_price - sl_price) / self.pip_value
 
+        tp1_r = self.exit_params["tp1_r"]
         if signal["final_decision"] == "BUY":
-            tp1_price = entry_price + (risk_pips * 1.5 * self.pip_value)
+            tp1_price = entry_price + (risk_pips * tp1_r * self.pip_value)
             tp2_price = entry_price + (risk_pips * 2.5 * self.pip_value)
             tp3_price = entry_price + (risk_pips * 4.0 * self.pip_value)
         else:
-            tp1_price = entry_price - (risk_pips * 1.5 * self.pip_value)
+            tp1_price = entry_price - (risk_pips * tp1_r * self.pip_value)
             tp2_price = entry_price - (risk_pips * 2.5 * self.pip_value)
             tp3_price = entry_price - (risk_pips * 4.0 * self.pip_value)
 
@@ -168,33 +179,35 @@ class BacktestEngine:
                 self._close_full(pos["stop_loss"], bar_idx, reason)
                 return
 
-        # 2. ADVERSE EXCURSION — entry was wrong, cut early at 0.5R
-        #    If trade immediately goes against us in first 3 bars, don't wait for full stop
-        if bars_held <= 3 and not pos["at_breakeven"]:
+        # 2. ADVERSE EXCURSION — entry was wrong, cut early
+        ae_bars = self.exit_params["adverse_bars"]
+        ae_r = self.exit_params["adverse_r"]
+        if bars_held <= ae_bars and not pos["at_breakeven"]:
             if pos["direction"] == "BUY":
                 adverse_pips = (pos["entry_price"] - low) / self.pip_value
             else:
                 adverse_pips = (high - pos["entry_price"]) / self.pip_value
 
-            if adverse_pips >= pos["risk_pips"] * 0.6:
+            if adverse_pips >= pos["risk_pips"] * ae_r:
                 self._close_full(close, bar_idx, "adverse_excursion")
                 return
 
         # 3. TIME STOP — trade going nowhere, dead money
-        #    After 20 bars (20 hours on H1) with less than 0.3R profit, kill it
-        if bars_held >= 30 and not pos["tp1_hit"]:
+        ts_bars = self.exit_params["time_stop_bars"]
+        ts_r = self.exit_params["time_stop_r"]
+        if bars_held >= ts_bars and not pos["tp1_hit"]:
             if pos["direction"] == "BUY":
                 pips_profit = (close - pos["entry_price"]) / self.pip_value
             else:
                 pips_profit = (pos["entry_price"] - close) / self.pip_value
 
-            if pips_profit < pos["risk_pips"] * 0.3:
+            if pips_profit < pos["risk_pips"] * ts_r:
                 self._close_full(close, bar_idx, "time_stop")
                 return
 
         # === LETTING WINNERS RUN ===
 
-        # 4. TP1 at 1R — close 50%, move stop to breakeven
+        # 4. TP1 — partial close, move stop to breakeven
         if not pos["tp1_hit"]:
             tp1_triggered = False
             if pos["direction"] == "BUY":
@@ -203,7 +216,7 @@ class BacktestEngine:
                 tp1_triggered = low <= pos["tp1_price"]
 
             if tp1_triggered:
-                units_to_close = int(pos["original_units"] * 0.33)
+                units_to_close = int(pos["original_units"] * self.exit_params["tp1_pct"])
                 if units_to_close > 0:
                     self._close_partial(pos["tp1_price"], bar_idx, "tp1_partial", units_to_close)
                 pos["tp1_hit"] = True

@@ -74,9 +74,9 @@ class TradePipeline:
             except Exception as e:
                 logger.warning(f"Multi-TF failed for {instrument}: {e}")
 
-        # 6. STRATEGY ENSEMBLE — 7 proven strategies vote
+        # 6. STRATEGY ENSEMBLE — 11 strategies vote (per-pair thresholds)
         if self.strategy_selector:
-            ensemble = self.strategy_selector.evaluate(df, regime)
+            ensemble = self.strategy_selector.evaluate(df, regime, instrument=instrument)
         else:
             ensemble = {"signal": tech.get("signal", "SKIP"),
                        "confidence": tech.get("confidence", 0),

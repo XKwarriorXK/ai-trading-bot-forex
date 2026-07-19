@@ -155,3 +155,18 @@ CORRELATION_GROUPS = {
     "jpy_pairs": ["USD_JPY", "EUR_JPY", "GBP_JPY"],
     "eur_pairs": ["EUR_USD", "EUR_GBP", "EUR_JPY"],
 }
+
+PAIR_PROFILES = {
+    "GBP_JPY": {
+        "min_agreeing": 3, "min_categories": 3,
+        "tp1_r": 2.0, "tp1_pct": 0.50,
+        "adverse_r": 0.6, "adverse_bars": 3,
+        "time_stop_bars": 20, "time_stop_r": 0.3,
+    },
+    "EUR_JPY": {
+        "min_agreeing": 5, "min_categories": 2,
+        "tp1_r": 2.0, "tp1_pct": 0.50,
+        "adverse_r": 0.4, "adverse_bars": 2,
+        "time_stop_bars": 20, "time_stop_r": 0.2,
+    },
+}
