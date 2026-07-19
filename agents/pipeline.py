@@ -122,8 +122,11 @@ class TradePipeline:
 
         # 8. AI DEBATE — ALL tradeable signals must pass the full chain
         #    No trade executes without L4 final approver sign-off
+        #    In fast mode, skip AI to measure raw strategy performance
         AI_DEBATE_THRESHOLD = 0.55
-        if self.debate and confidence >= AI_DEBATE_THRESHOLD:
+        if mode == "fast":
+            logger.info(f"FAST MODE | {instrument} | Skipping AI debate — strategy-only test")
+        elif self.debate and confidence >= AI_DEBATE_THRESHOLD:
             logger.info(f"AI DEBATE | {instrument} | Conf {confidence:.0%} — sending to approval chain")
 
             price = price_data.get("bid", 0) if price_data else 0
