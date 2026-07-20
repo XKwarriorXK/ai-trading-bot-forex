@@ -21,7 +21,7 @@ CHUNK_DAYS = {
 
 
 def fetch_oanda_historical(instrument: str = "EUR_USD", granularity: str = "H1",
-                           days: int = 180) -> pd.DataFrame:
+                           days: int = 180, end_date: str = None) -> pd.DataFrame:
     try:
         from execution.oanda_client import OandaClient
         oanda = OandaClient()
@@ -32,7 +32,10 @@ def fetch_oanda_historical(instrument: str = "EUR_USD", granularity: str = "H1",
         all_data = []
         chunk_size = CHUNK_DAYS.get(granularity, 20)
         remaining_days = days
-        end_time = datetime.now(timezone.utc)
+        if end_date:
+            end_time = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            end_time = datetime.now(timezone.utc)
 
         while remaining_days > 0:
             fetch_days = min(remaining_days, chunk_size)

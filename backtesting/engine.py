@@ -234,11 +234,12 @@ class BacktestEngine:
     def _open_position(self, signal, entry_bar, bar_idx):
         entry_price = float(entry_bar["open"])
         spread_cost = self.spec["spread_avg"] * self.pip_value / 2
+        slippage = self.pip_value * 0.5
 
         if signal["final_decision"] == "BUY":
-            entry_price += spread_cost
+            entry_price += spread_cost + slippage
         else:
-            entry_price -= spread_cost
+            entry_price -= spread_cost + slippage
 
         sl_price = signal.get("stop_loss_price")
         tp_price = signal.get("take_profit_price")
@@ -445,9 +446,12 @@ class BacktestEngine:
 
     def _close_partial(self, exit_price, bar_idx, reason, units_to_close):
         pos = self.current_position
+        slippage = self.pip_value * 0.5
         if pos["direction"] == "BUY":
+            exit_price -= slippage
             pnl_pips = (exit_price - pos["entry_price"]) / self.pip_value
         else:
+            exit_price += slippage
             pnl_pips = (pos["entry_price"] - exit_price) / self.pip_value
 
         pnl_usd = pnl_pips * self.pip_value * units_to_close
@@ -481,9 +485,12 @@ class BacktestEngine:
             self.current_position = None
             return
 
+        slippage = self.pip_value * 0.5
         if pos["direction"] == "BUY":
+            exit_price -= slippage
             pnl_pips = (exit_price - pos["entry_price"]) / self.pip_value
         else:
+            exit_price += slippage
             pnl_pips = (pos["entry_price"] - exit_price) / self.pip_value
 
         pnl_usd = pnl_pips * self.pip_value * units

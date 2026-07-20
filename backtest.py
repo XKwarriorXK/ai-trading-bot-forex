@@ -88,14 +88,15 @@ def run_single(args, instrument, style_override=None):
 
     style = style_override or args.style
     timeframe = "H4" if style == "swing" else args.timeframe
-    data = fetch_oanda_historical(instrument, timeframe, args.days)
+    end_date = getattr(args, 'end_date', None)
+    data = fetch_oanda_historical(instrument, timeframe, args.days, end_date=end_date)
     if data.empty:
         logger.warning(f"No data for {instrument} — skipping")
         return None
 
     daily_data = None
     if style == "swing":
-        daily_data = fetch_oanda_historical(instrument, "D", args.days + 250)
+        daily_data = fetch_oanda_historical(instrument, "D", args.days + 250, end_date=end_date)
         if not daily_data.empty:
             logger.info(f"Daily data loaded: {len(daily_data)} bars for multi-TF alignment")
 
@@ -128,6 +129,8 @@ def main():
                        help="Run Monte Carlo risk analysis")
     parser.add_argument("--mc-sims", type=int, default=10000,
                        help="Monte Carlo simulations")
+    parser.add_argument("--end-date", default=None,
+                       help="End date for backtest (YYYY-MM-DD). Default: today")
     args = parser.parse_args()
 
     if args.style == "combined":
