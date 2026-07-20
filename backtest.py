@@ -215,11 +215,13 @@ def main():
         logger.info("  No trades across any pair")
 
     # PROP FIRM STATUS
+    from config.settings import PROP_FIRM
     prop = None
-    for inst, r in all_results.items():
-        if r.get("prop_firm"):
-            prop = r["prop_firm"]
-            break
+    if PROP_FIRM.get("enabled"):
+        for inst, r in all_results.items():
+            if "prop_firm" in r:
+                prop = r["prop_firm"]
+                break
 
     if prop:
         logger.info("\n" + "=" * 60)
@@ -235,9 +237,11 @@ def main():
         logger.info(f"  Profit target: {target_status}")
         if prop['account_terminated']:
             logger.info(f"  *** ACCOUNT TERMINATED: {prop['termination_reason']} ***")
+        logger.info(f"  Profit split: {prop['profit_split']:.0%}")
         if prop['total_pnl'] > 0:
-            logger.info(f"  Profit split: {prop['profit_split']:.0%}")
             logger.info(f"  YOUR PAYOUT: ${prop['your_payout']:,.2f}")
+        else:
+            logger.info(f"  Status: IN DRAWDOWN — no payout yet")
 
     if args.monte_carlo and all_trades:
         logger.info("\n" + "=" * 60)

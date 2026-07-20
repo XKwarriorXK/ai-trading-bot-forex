@@ -110,10 +110,18 @@ class BacktestEngine:
                     if self.style == "swing" and self.daily_trend_cache:
                         daily = self._get_daily_trend(data.index[i])
                         if daily and daily != result["final_decision"]:
-                            logger.info(
-                                f"DAILY FILTER | {self.instrument} | "
-                                f"H4 {result['final_decision']} blocked — Daily trend is {daily}")
-                            continue
+                            at_zone = result.get("at_zone", False) or price_data.get("zone") is not None
+                            if at_zone:
+                                result["confidence"] = round(result["confidence"] * 0.85, 4)
+                                logger.info(
+                                    f"DAILY PENALTY | {self.instrument} | "
+                                    f"H4 {result['final_decision']} vs Daily {daily} — "
+                                    f"zone present, conf reduced to {result['confidence']:.0%}")
+                            else:
+                                logger.info(
+                                    f"DAILY FILTER | {self.instrument} | "
+                                    f"H4 {result['final_decision']} blocked — Daily trend is {daily}")
+                                continue
 
                     if i + 1 < len(data):
                         self._open_position(result, data.iloc[i + 1], i + 1)
