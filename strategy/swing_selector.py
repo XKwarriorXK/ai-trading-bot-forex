@@ -1,20 +1,22 @@
 """
-Swing Selector — two-tier gate + entry evaluation.
+Swing Selector — institutional top-down analysis.
 
-Unlike the scalp selector where all 11 strategies vote equally,
-the swing selector enforces a strict hierarchy:
+    Daily → direction + supply/demand zones (WHERE to trade)
+    H4   → gates confirm trend is intact
+    H4   → 15 strategies + zone vote for entry (WHEN to enter)
 
+Flow:
     Tier 1 — GATES (must ALL pass):
-        MA Trend Filter:     Determines allowed direction (BUY/SELL only)
-        Market Structure:    Must confirm trend is healthy (HH/HL or LL/LH)
+        MA Trend Filter:     50/200 MA determines direction
+        Market Structure:    HH/HL or LL/LH must be intact
+        ADX Strength:        ADX > 20 confirms trend exists
 
     Tier 2 — ENTRY SIGNALS (need MIN_ENTRIES to agree):
-        Fair Value Gap:      Price at institutional imbalance zone
-        Divergence:          RSI/MACD disagreeing with price
-        Trend Pullback:      Price retracing to key moving averages
-        Liquidity Sweep:     Stop hunt then reversal
+        Daily S/D Zone:      Price at institutional supply/demand level
+        4 Swing entries:     FVG, divergence, pullback, liquidity sweep
+        11 Scalp strategies: Additional confirmation from full strategy suite
 
-Only entry signals matching the gate direction are counted.
+Zone at an institutional level + strategies confirming = high conviction entry.
 """
 import logging
 from strategy.swing_strategies import (
@@ -22,18 +24,9 @@ from strategy.swing_strategies import (
     FairValueGapStrategy, DivergenceStrategy,
     TrendPullbackStrategy, LiquiditySweepStrategy,
 )
+from strategy.strategies import ALL_STRATEGIES as SCALP_STRATEGIES
 
 logger = logging.getLogger(__name__)
-
-SWING_CATEGORY = {
-    "ma_trend_gate": "trend_gate",
-    "structure_gate": "structure_gate",
-    "adx_gate": "strength_gate",
-    "fair_value_gap": "entry_imbalance",
-    "divergence": "entry_momentum",
-    "trend_pullback": "entry_retracement",
-    "liquidity_sweep": "entry_reversal",
-}
 
 MIN_ENTRIES = 2
 
@@ -43,14 +36,15 @@ class SwingSelector:
         self.ma_gate = MATrendGate()
         self.struct_gate = StructureGate()
         self.adx_gate = ADXGate()
-        self.entry_strategies = [
+        self.swing_entries = [
             FairValueGapStrategy(),
             DivergenceStrategy(),
             TrendPullbackStrategy(),
             LiquiditySweepStrategy(),
         ]
+        self.scalp_strategies = SCALP_STRATEGIES
 
-    def evaluate(self, df, regime: str, instrument: str = None) -> dict:
+    def evaluate(self, df, regime: str, instrument: str = None, zone=None) -> dict:
         # === GATE 1: MA TREND ===
         ma = self.ma_gate.evaluate(df, regime)
         if ma["signal"] == "SKIP":
@@ -83,7 +77,24 @@ class SwingSelector:
         entry_votes = []
         all_reasons = list(ma.get("reasons", [])) + list(struct.get("reasons", []))
 
-        for strat in self.entry_strategies:
+        # --- Daily supply/demand zone (strongest signal) ---
+        at_zone = False
+        if zone:
+            zone_signal = "BUY" if zone["type"] == "demand" else "SELL"
+            if zone_signal == allowed:
+                at_zone = True
+                zone_conf = min(0.70 + zone.get("strength", 1.5) * 0.03, 0.90)
+                entry_votes.append({
+                    "strategy": f"daily_{zone['type']}_zone",
+                    "signal": zone_signal,
+                    "confidence": zone_conf,
+                    "category": "zone_entry",
+                    "reasons": [f"Price at daily {zone['type']} zone [{zone['bottom']:.5f}-{zone['top']:.5f}]"],
+                })
+                all_reasons.append(f"At daily {zone['type']} zone (strength {zone.get('strength', 0)}x ATR)")
+
+        # --- 4 swing entry strategies ---
+        for strat in self.swing_entries:
             try:
                 result = strat.evaluate(df, regime)
                 if result["signal"] == allowed:
@@ -91,12 +102,33 @@ class SwingSelector:
                         "strategy": strat.name,
                         "signal": result["signal"],
                         "confidence": result["confidence"],
-                        "category": SWING_CATEGORY.get(strat.name, "unknown"),
+                        "category": f"swing_{strat.name}",
                         "reasons": result.get("reasons", []),
                     })
                     all_reasons.extend(result.get("reasons", []))
             except Exception as e:
                 logger.warning(f"Swing strategy {strat.name} failed: {e}")
+
+        # --- 11 scalp strategies as additional confirmation ---
+        scalp_confirms = 0
+        for strat in self.scalp_strategies:
+            try:
+                result = strat.evaluate(df, regime)
+                if result.get("signal") == allowed:
+                    scalp_confirms += 1
+            except Exception:
+                pass
+
+        if scalp_confirms >= 3:
+            scalp_conf = min(0.55 + scalp_confirms * 0.03, 0.80)
+            entry_votes.append({
+                "strategy": f"scalp_ensemble_{scalp_confirms}",
+                "signal": allowed,
+                "confidence": scalp_conf,
+                "category": "scalp_confirmation",
+                "reasons": [f"{scalp_confirms}/11 scalp strategies confirm {allowed}"],
+            })
+            all_reasons.append(f"{scalp_confirms} scalp strategies confirm")
 
         if len(entry_votes) < MIN_ENTRIES:
             names = [v["strategy"] for v in entry_votes]
@@ -108,15 +140,18 @@ class SwingSelector:
         gate_conf = (ma["confidence"] + struct["confidence"] + adx["confidence"]) / 3
         entry_conf = sum(v["confidence"] for v in entry_votes) / len(entry_votes)
 
-        final_conf = gate_conf * 0.45 + entry_conf * 0.55
+        final_conf = gate_conf * 0.40 + entry_conf * 0.60
 
+        if at_zone:
+            final_conf += 0.05
         if adx.get("adx", 0) >= 30:
             final_conf += 0.03
-
         if len(entry_votes) >= 3:
             final_conf += 0.05
         if len(entry_votes) >= 4:
             final_conf += 0.05
+        if len(entry_votes) >= 5:
+            final_conf += 0.03
 
         final_conf = round(min(final_conf, 0.95), 4)
 
@@ -137,11 +172,12 @@ class SwingSelector:
         }
 
         categories = list(set(v["category"] for v in entry_votes))
-
         adx_val = adx.get("adx", 0)
+        zone_tag = f" @ {zone['type']} zone" if at_zone else ""
+
         logger.info(
-            f"SWING {grade} | {allowed} | Conf: {final_conf:.0%} | "
-            f"Gates: MA+Structure+ADX({adx_val:.0f}) | "
+            f"SWING {grade} | {allowed}{zone_tag} | Conf: {final_conf:.0%} | "
+            f"Gates: MA+Struct+ADX({adx_val:.0f}) | "
             f"Entries: {len(entry_votes)} ({', '.join(v['strategy'] for v in entry_votes)}) | "
             f"{grade_labels.get(grade, grade)}"
         )
@@ -159,4 +195,5 @@ class SwingSelector:
             "votes": entry_votes,
             "gates_passed": ["ma_trend_gate", "structure_gate", "adx_gate"],
             "structure": struct,
+            "at_zone": at_zone,
         }

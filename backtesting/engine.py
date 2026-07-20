@@ -50,8 +50,10 @@ class BacktestEngine:
         self.balance = self.initial_balance
 
         self.daily_trend_cache = {}
+        self.daily_zones = []
         if daily_data is not None and not daily_data.empty:
             self._precompute_daily_trend(daily_data)
+            self._precompute_daily_zones(daily_data)
 
     def run(self, data: pd.DataFrame, lookback: int = 200) -> dict:
         if self.style == "swing":
@@ -80,9 +82,20 @@ class BacktestEngine:
 
             if not self.current_position:
                 bar_ts = data.index[i] if hasattr(data.index[i], 'hour') else None
+                price_data = {
+                    "bid": float(current_bar["close"]),
+                    "spread": self.spec["spread_avg"] * self.pip_value,
+                    "timestamp": bar_ts,
+                }
+
+                if self.style == "swing" and self.daily_zones:
+                    zone = self._get_active_zone(float(current_bar["close"]), data.index[i])
+                    if zone:
+                        price_data["zone"] = zone
+
                 result = self.pipeline.evaluate(
                     window, self.instrument,
-                    price_data={"bid": float(current_bar["close"]), "spread": self.spec["spread_avg"] * self.pip_value, "timestamp": bar_ts},
+                    price_data=price_data,
                     mode=self.mode,
                     style=self.style,
                 )
@@ -95,6 +108,7 @@ class BacktestEngine:
                                 f"DAILY FILTER | {self.instrument} | "
                                 f"H4 {result['final_decision']} blocked — Daily trend is {daily}")
                             continue
+
                     if i + 1 < len(data):
                         self._open_position(result, data.iloc[i + 1], i + 1)
 
@@ -137,6 +151,70 @@ class BacktestEngine:
             else:
                 break
         return latest
+
+    def _precompute_daily_zones(self, daily_data):
+        import ta as ta_lib
+        atr = ta_lib.volatility.average_true_range(
+            daily_data["high"], daily_data["low"], daily_data["close"], window=14)
+
+        for i in range(1, len(daily_data) - 1):
+            if pd.isna(atr.iloc[i]):
+                continue
+            atr_val = float(atr.iloc[i])
+            if atr_val == 0:
+                continue
+
+            curr_body = abs(float(daily_data["close"].iloc[i]) - float(daily_data["open"].iloc[i]))
+            next_body = abs(float(daily_data["close"].iloc[i + 1]) - float(daily_data["open"].iloc[i + 1]))
+
+            if curr_body > atr_val * 0.5:
+                continue
+            if next_body < atr_val * 1.5:
+                continue
+
+            zone_top = max(float(daily_data["high"].iloc[i]), float(daily_data["high"].iloc[max(0, i - 1)]))
+            zone_bottom = min(float(daily_data["low"].iloc[i]), float(daily_data["low"].iloc[max(0, i - 1)]))
+            zone_date = daily_data.index[i].date()
+
+            if float(daily_data["close"].iloc[i + 1]) > float(daily_data["open"].iloc[i + 1]):
+                zone_type = "demand"
+            else:
+                zone_type = "supply"
+
+            self.daily_zones.append({
+                "type": zone_type,
+                "top": zone_top,
+                "bottom": zone_bottom,
+                "date": zone_date,
+                "strength": round(next_body / atr_val, 1),
+            })
+
+        logger.info(f"Daily S/D zones: {len(self.daily_zones)} found "
+                    f"({sum(1 for z in self.daily_zones if z['type'] == 'demand')} demand, "
+                    f"{sum(1 for z in self.daily_zones if z['type'] == 'supply')} supply)")
+
+    def _get_active_zone(self, price, timestamp):
+        bar_date = timestamp.date() if hasattr(timestamp, 'date') else None
+        if not bar_date or not self.daily_zones:
+            return None
+
+        atr_buffer = abs(price) * 0.002
+
+        for zone in reversed(self.daily_zones):
+            if zone["date"] >= bar_date:
+                continue
+            age_days = (bar_date - zone["date"]).days
+            if age_days > 120:
+                continue
+
+            if zone["type"] == "demand":
+                if zone["bottom"] - atr_buffer <= price <= zone["top"] + atr_buffer:
+                    return zone
+            elif zone["type"] == "supply":
+                if zone["bottom"] - atr_buffer <= price <= zone["top"] + atr_buffer:
+                    return zone
+
+        return None
 
     def _open_position(self, signal, entry_bar, bar_idx):
         entry_price = float(entry_bar["open"])

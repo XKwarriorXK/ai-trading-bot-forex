@@ -75,9 +75,10 @@ class TradePipeline:
             except Exception as e:
                 logger.warning(f"Multi-TF failed for {instrument}: {e}")
 
-        # 6. STRATEGY ENSEMBLE — scalp (11 strategies) or swing (gate+entry)
+        # 6. STRATEGY ENSEMBLE — scalp (11 strategies) or swing (gate+entry+zones)
         if style == "swing" and self.swing_selector:
-            ensemble = self.swing_selector.evaluate(df, regime, instrument=instrument)
+            zone = price_data.get("zone") if price_data else None
+            ensemble = self.swing_selector.evaluate(df, regime, instrument=instrument, zone=zone)
         elif self.strategy_selector:
             ensemble = self.strategy_selector.evaluate(df, regime, instrument=instrument)
         else:
