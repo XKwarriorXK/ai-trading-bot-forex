@@ -134,9 +134,20 @@ PROP_FIRM = {
     "daily_loss_buffer_pct": 4.5,
     "max_total_loss_pct": 10.0,
     "total_loss_buffer_pct": 8.0,
+    "phase1_target_pct": 10.0,
+    "phase2_target_pct": 5.0,
     "profit_target_pct": 10.0,
     "min_trading_days": 4,
-    "profit_split": 0.80,
+    "trading_period": "unlimited",
+    "profit_split": 0.90,
+    "fee_refund": True,
+    "accounts": {
+        200000: 1249,
+        100000: 619,
+        50000: 399,
+        25000: 289,
+        10000: 99,
+    },
 }
 
 # -- Risk Config (tuned for FTMO compliance) --

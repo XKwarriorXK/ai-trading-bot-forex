@@ -324,10 +324,16 @@ def main():
         target_hit = return_pct >= target
         target_status = "HIT" if target_hit else f"{return_pct:.1f}% / {target}%"
         logger.info(f"  Profit target: {target_status}")
+        fee = PROP_FIRM.get("accounts", {}).get(int(args.balance), 0)
+        if fee:
+            logger.info(f"  Challenge fee: ${fee:,} (refunded on first payout)")
+
         logger.info(f"  Profit split: {split:.0%}")
         if total_pnl > 0:
             payout = total_pnl * split
             logger.info(f"  YOUR PAYOUT: ${payout:,.2f}")
+            if fee:
+                logger.info(f"  NET AFTER FEE REFUND: ${payout + fee:,.2f}")
         else:
             logger.info(f"  Status: IN DRAWDOWN — no payout yet")
 
