@@ -290,21 +290,36 @@ def main():
             if dd > max_dd_pct:
                 max_dd_pct = dd
 
-        worst_daily = 0
         from collections import defaultdict
         daily_pnls = defaultdict(float)
         for t in all_trades:
-            day_key = str(t.get("entry_bar", 0) // 6)
+            day_key = t.get("date", "unknown")
             daily_pnls[day_key] += t["pnl"]
-        if daily_pnls:
-            worst_daily = min(daily_pnls.values())
-            worst_daily_pct = abs(worst_daily) / args.balance * 100
+        trading_days = len([d for d in daily_pnls if d != "unknown"])
+
+        worst_daily = 0
+        worst_daily_pct = 0
+        worst_daily_date = ""
+        best_daily = 0
+        best_daily_date = ""
+        for day, pnl in daily_pnls.items():
+            if pnl < worst_daily:
+                worst_daily = pnl
+                worst_daily_date = day
+                worst_daily_pct = abs(pnl) / args.balance * 100
+            if pnl > best_daily:
+                best_daily = pnl
+                best_daily_date = day
+
+        dd_ok = "PASS" if max_dd_pct < PROP_FIRM["max_total_loss_pct"] else "FAIL"
+        daily_ok = "PASS" if worst_daily_pct < PROP_FIRM["max_daily_loss_pct"] else "FAIL"
 
         logger.info(f"  Account: ${args.balance:,.2f} → ${final_bal:,.2f}")
         logger.info(f"  Total P&L: ${total_pnl:,.2f} ({return_pct:+.2f}%)")
-        logger.info(f"  Max drawdown: {max_dd_pct:.2f}% / {PROP_FIRM['max_total_loss_pct']}% limit")
-        logger.info(f"  Worst daily loss: ${worst_daily:,.2f} ({worst_daily_pct:.2f}% / {PROP_FIRM['max_daily_loss_pct']}% limit)")
-        logger.info(f"  Trading days: {len(daily_pnls)} (min {PROP_FIRM['min_trading_days']})")
+        logger.info(f"  Max drawdown: {max_dd_pct:.2f}% / {PROP_FIRM['max_total_loss_pct']}% limit [{dd_ok}]")
+        logger.info(f"  Worst daily loss: ${worst_daily:,.2f} ({worst_daily_pct:.2f}%) on {worst_daily_date} [{daily_ok}]")
+        logger.info(f"  Best daily gain: ${best_daily:,.2f} on {best_daily_date}")
+        logger.info(f"  Trading days: {trading_days} (min {PROP_FIRM['min_trading_days']})")
 
         target_hit = return_pct >= target
         target_status = "HIT" if target_hit else f"{return_pct:.1f}% / {target}%"

@@ -61,6 +61,7 @@ class BacktestEngine:
         logger.info(f"Backtesting {self.instrument} | {len(data)} bars | "
                    f"Mode: {self.mode} | Style: {self.style} | Balance: ${self.balance:,.2f}")
 
+        self._data = data
         self.equity_curve = [{"bar": 0, "equity": self.balance}]
 
         import ta
@@ -435,6 +436,13 @@ class BacktestEngine:
                 self._close_full(close, bar_idx, "runner_exit_5R")
                 return
 
+    def _bar_date(self, bar_idx):
+        try:
+            ts = self._data.index[bar_idx]
+            return str(ts.date()) if hasattr(ts, 'date') else None
+        except (IndexError, AttributeError):
+            return None
+
     def _close_partial(self, exit_price, bar_idx, reason, units_to_close):
         pos = self.current_position
         if pos["direction"] == "BUY":
@@ -460,6 +468,7 @@ class BacktestEngine:
             "confidence": pos["confidence"],
             "bars_held": bar_idx - pos["entry_bar"],
             "partial": True,
+            "date": self._bar_date(bar_idx),
         })
         self.equity_curve.append({"bar": bar_idx, "equity": self.balance})
         self.risk.record_trade_result(pnl_usd)
@@ -485,6 +494,7 @@ class BacktestEngine:
             "direction": pos["direction"],
             "entry_price": pos["entry_price"],
             "exit_price": exit_price,
+            "date": self._bar_date(bar_idx),
             "units": units,
             "pnl": round(pnl_usd, 2),
             "pnl_pips": round(pnl_pips, 1),
