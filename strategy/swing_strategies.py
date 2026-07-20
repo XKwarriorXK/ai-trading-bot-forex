@@ -177,15 +177,15 @@ class ADXGate:
 
         adx_val = float(adx.iloc[-1])
 
-        if adx_val < 25:
+        if adx_val < 20:
             return {"signal": "SKIP", "confidence": 0,
-                    "reason": f"ADX {adx_val:.1f} < 25 — no trend"}
+                    "reason": f"ADX {adx_val:.1f} < 20 — no trend"}
 
         di_p = float(di_plus.iloc[-1]) if not pd.isna(di_plus.iloc[-1]) else 0
         di_m = float(di_minus.iloc[-1]) if not pd.isna(di_minus.iloc[-1]) else 0
 
         signal = "BUY" if di_p > di_m else "SELL"
-        strength = min(0.65 + (adx_val - 25) * 0.005, 0.90)
+        strength = min(0.60 + (adx_val - 20) * 0.005, 0.90)
 
         return {
             "signal": signal,

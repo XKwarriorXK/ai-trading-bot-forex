@@ -100,7 +100,7 @@ def run_single(args, instrument):
 
 
 def main():
-    from config.settings import WATCHLIST
+    from config.settings import WATCHLIST, SWING_WATCHLIST
 
     parser = argparse.ArgumentParser(description="Backtest the forex bot")
     parser.add_argument("--instrument", default=None,
@@ -118,7 +118,12 @@ def main():
                        help="Monte Carlo simulations")
     args = parser.parse_args()
 
-    instruments = [args.instrument] if args.instrument else WATCHLIST
+    if args.instrument:
+        instruments = [args.instrument]
+    elif args.style == "swing":
+        instruments = SWING_WATCHLIST
+    else:
+        instruments = WATCHLIST
 
     logger.info("=" * 60)
     logger.info("FOREX BACKTEST")

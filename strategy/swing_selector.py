@@ -110,7 +110,7 @@ class SwingSelector:
 
         final_conf = gate_conf * 0.45 + entry_conf * 0.55
 
-        if adx.get("adx", 0) >= 35:
+        if adx.get("adx", 0) >= 30:
             final_conf += 0.03
 
         if len(entry_votes) >= 3:

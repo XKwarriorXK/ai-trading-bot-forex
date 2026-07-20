@@ -102,6 +102,11 @@ WATCHLIST = [
     "EUR_USD",
 ]
 
+SWING_WATCHLIST = [
+    "EUR_USD",
+    "EUR_JPY",
+]
+
 INSTRUMENTS = {
     "EUR_USD": {"pip_location": -4, "min_units": 1, "spread_avg": 1.2},
     "GBP_USD": {"pip_location": -4, "min_units": 1, "spread_avg": 1.5},
