@@ -126,16 +126,30 @@ TIMEFRAMES = {
 }
 
 
-# -- Risk Config --
+# -- Prop Firm Compliance (FTMO rules) --
+PROP_FIRM = {
+    "enabled": True,
+    "name": "FTMO",
+    "max_daily_loss_pct": 5.0,
+    "daily_loss_buffer_pct": 4.5,
+    "max_total_loss_pct": 10.0,
+    "total_loss_buffer_pct": 8.0,
+    "profit_target_pct": 10.0,
+    "min_trading_days": 4,
+    "profit_split": 0.80,
+}
+
+# -- Risk Config (tuned for FTMO compliance) --
 RISK = {
-    "max_daily_loss_pct": 2.0,
+    "max_daily_loss_pct": 4.5,
+    "max_total_loss_pct": 8.0,
     "max_position_pct": 2.0,
-    "max_trades_per_day": 6,
-    "risk_per_trade_pct": 3.0,
+    "max_trades_per_day": 3,
+    "risk_per_trade_pct": 2.0,
     "default_stop_loss_pips": 30,
     "default_take_profit_pips": 60,
-    "max_open_trades": 3,
-    "max_correlated_trades": 2,
+    "max_open_trades": 2,
+    "max_correlated_trades": 1,
 }
 
 CONFIDENCE_TIERS = {

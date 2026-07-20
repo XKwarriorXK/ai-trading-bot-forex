@@ -6,7 +6,7 @@ Per-pair profiles override default exit parameters when configured.
 import logging
 import numpy as np
 import pandas as pd
-from config.settings import INSTRUMENTS, PAIR_PROFILES, SWING_EXIT
+from config.settings import INSTRUMENTS, PAIR_PROFILES, SWING_EXIT, PROP_FIRM
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,12 @@ class BacktestEngine:
 
             if self.current_position:
                 self._check_exit(current_bar, i)
+
+            if self.risk.account_terminated:
+                logger.critical(
+                    f"ACCOUNT TERMINATED at bar {i} | {self.risk.termination_reason} | "
+                    f"Balance: ${self.balance:,.2f}")
+                break
 
             if not self.current_position:
                 bar_ts = data.index[i] if hasattr(data.index[i], 'hour') else None
@@ -524,7 +530,7 @@ class BacktestEngine:
         avg_winner_bars = np.mean([t["bars_held"] for t in full_closes if t["pnl"] > 0]) if [t for t in full_closes if t["pnl"] > 0] else 0
         avg_loser_bars = np.mean([t["bars_held"] for t in full_closes if t["pnl"] <= 0]) if [t for t in full_closes if t["pnl"] <= 0] else 0
 
-        return {
+        report = {
             "instrument": self.instrument,
             "mode": self.mode,
             "total_bars": len(data),
@@ -553,3 +559,8 @@ class BacktestEngine:
             "trades": self.trades,
             "equity_curve": self.equity_curve,
         }
+
+        if PROP_FIRM.get("enabled"):
+            report["prop_firm"] = self.risk.get_prop_firm_status()
+
+        return report

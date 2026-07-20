@@ -214,6 +214,31 @@ def main():
     else:
         logger.info("  No trades across any pair")
 
+    # PROP FIRM STATUS
+    prop = None
+    for inst, r in all_results.items():
+        if r.get("prop_firm"):
+            prop = r["prop_firm"]
+            break
+
+    if prop:
+        logger.info("\n" + "=" * 60)
+        logger.info(f"PROP FIRM STATUS — {prop['firm']}")
+        logger.info("=" * 60)
+        logger.info(f"  Account: ${prop['initial_balance']:,.2f} → ${prop['current_balance']:,.2f}")
+        logger.info(f"  Total P&L: ${prop['total_pnl']:,.2f} ({prop['return_pct']:+.2f}%)")
+        logger.info(f"  Daily loss used: {prop['daily_loss_pct']:.2f}% / {prop['daily_loss_limit']}% limit")
+        logger.info(f"  Total drawdown: {prop['total_drawdown_pct']:.2f}% / {prop['total_loss_limit']}% limit")
+        logger.info(f"  Max drawdown: {prop['max_drawdown_pct']:.2f}%")
+        logger.info(f"  Trading days: {prop['trading_days']} (min {prop['min_trading_days']})")
+        target_status = "HIT" if prop['target_hit'] else f"{prop['return_pct']:.1f}% / {prop['target_pct']}%"
+        logger.info(f"  Profit target: {target_status}")
+        if prop['account_terminated']:
+            logger.info(f"  *** ACCOUNT TERMINATED: {prop['termination_reason']} ***")
+        if prop['total_pnl'] > 0:
+            logger.info(f"  Profit split: {prop['profit_split']:.0%}")
+            logger.info(f"  YOUR PAYOUT: ${prop['your_payout']:,.2f}")
+
     if args.monte_carlo and all_trades:
         logger.info("\n" + "=" * 60)
         logger.info("MONTE CARLO RISK ANALYSIS (all pairs combined)")
