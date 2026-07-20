@@ -131,7 +131,7 @@ PROP_FIRM = {
     "enabled": True,
     "name": "FTMO",
     "max_daily_loss_pct": 5.0,
-    "daily_loss_buffer_pct": 4.5,
+    "daily_loss_buffer_pct": 4.0,
     "max_total_loss_pct": 10.0,
     "total_loss_buffer_pct": 8.0,
     "phase1_target_pct": 10.0,
@@ -152,11 +152,10 @@ PROP_FIRM = {
 
 # -- Risk Config (tuned for FTMO compliance) --
 RISK = {
-    "max_daily_loss_pct": 4.5,
+    "max_daily_loss_pct": 4.0,
     "max_total_loss_pct": 8.0,
-    "max_position_pct": 2.0,
-    "max_trades_per_day": 3,
-    "risk_per_trade_pct": 2.0,
+    "max_position_pct": 1.5,
+    "risk_per_trade_pct": 1.5,
     "default_stop_loss_pips": 30,
     "default_take_profit_pips": 60,
     "max_open_trades": 2,
