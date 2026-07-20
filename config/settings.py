@@ -103,7 +103,6 @@ WATCHLIST = [
 ]
 
 SWING_WATCHLIST = [
-    "EUR_USD",
     "EUR_JPY",
 ]
 
