@@ -82,25 +82,31 @@ def build_pipeline(args):
     return pipeline, risk
 
 
-def run_single(args, instrument):
+def run_single(args, instrument, style_override=None):
     from backtesting.data_loader import fetch_oanda_historical
     from backtesting.engine import BacktestEngine
 
-    timeframe = "H4" if args.style == "swing" else args.timeframe
+    style = style_override or args.style
+    timeframe = "H4" if style == "swing" else args.timeframe
     data = fetch_oanda_historical(instrument, timeframe, args.days)
     if data.empty:
         logger.warning(f"No data for {instrument} — skipping")
         return None
 
     daily_data = None
-    if args.style == "swing":
+    if style == "swing":
         daily_data = fetch_oanda_historical(instrument, "D", args.days + 250)
         if not daily_data.empty:
             logger.info(f"Daily data loaded: {len(daily_data)} bars for multi-TF alignment")
 
+    # Override style for pipeline building
+    orig_style = args.style
+    args.style = style
     pipeline, risk = build_pipeline(args)
+    args.style = orig_style
+
     engine = BacktestEngine(pipeline, risk, instrument, args.mode, timeframe,
-                            style=args.style, daily_data=daily_data)
+                            style=style, daily_data=daily_data)
     results = engine.run(data)
     return results
 
@@ -115,8 +121,8 @@ def main():
     parser.add_argument("--timeframe", default="H1", help="Candle timeframe")
     parser.add_argument("--mode", default="fast", choices=["fast", "full"],
                        help="fast=technical only, full=with AI")
-    parser.add_argument("--style", default="scalp", choices=["scalp", "swing"],
-                       help="scalp=H1 quick trades, swing=H4 big moves")
+    parser.add_argument("--style", default="scalp", choices=["scalp", "swing", "combined"],
+                       help="scalp=H1 quick, swing=H4 big, combined=both")
     parser.add_argument("--balance", type=float, default=100, help="Starting balance")
     parser.add_argument("--monte-carlo", action="store_true",
                        help="Run Monte Carlo risk analysis")
@@ -124,50 +130,94 @@ def main():
                        help="Monte Carlo simulations")
     args = parser.parse_args()
 
-    if args.instrument:
-        instruments = [args.instrument]
+    if args.style == "combined":
+        scalp_instruments = [args.instrument] if args.instrument else WATCHLIST
+        swing_instruments = [args.instrument] if args.instrument else SWING_WATCHLIST
+        all_instruments_display = list(set(scalp_instruments + swing_instruments))
+    elif args.instrument:
+        scalp_instruments = [args.instrument]
+        swing_instruments = [args.instrument]
+        all_instruments_display = [args.instrument]
     elif args.style == "swing":
-        instruments = SWING_WATCHLIST
+        scalp_instruments = []
+        swing_instruments = SWING_WATCHLIST
+        all_instruments_display = SWING_WATCHLIST
     else:
-        instruments = WATCHLIST
+        scalp_instruments = WATCHLIST
+        swing_instruments = []
+        all_instruments_display = WATCHLIST
 
     logger.info("=" * 60)
     logger.info("FOREX BACKTEST")
-    logger.info(f"  Pairs: {len(instruments)} | Days: {args.days}")
+    if args.style == "combined":
+        logger.info(f"  Scalp pairs: {len(scalp_instruments)} | Swing pairs: {len(swing_instruments)}")
+    else:
+        logger.info(f"  Pairs: {len(all_instruments_display)} | Days: {args.days}")
     logger.info(f"  Mode: {args.mode} | Style: {args.style} | Balance: ${args.balance:,.2f}")
-    tf = "H4" if args.style == "swing" else args.timeframe
-    logger.info(f"  Timeframe: {tf} | Instruments: {', '.join(instruments)}")
+    logger.info(f"  Days: {args.days} | Instruments: {', '.join(all_instruments_display)}")
     logger.info("=" * 60)
 
     all_results = {}
     all_trades = []
     total_pnl = 0
 
-    for instrument in instruments:
-        logger.info(f"\n{'─' * 40}")
-        logger.info(f"TESTING: {instrument}")
-        logger.info(f"{'─' * 40}")
+    # SCALP runs
+    if args.style in ("scalp", "combined"):
+        for instrument in scalp_instruments:
+            logger.info(f"\n{'─' * 40}")
+            logger.info(f"SCALP: {instrument}")
+            logger.info(f"{'─' * 40}")
 
-        results = run_single(args, instrument)
-        if results is None:
-            continue
+            results = run_single(args, instrument, style_override="scalp")
+            if results is None:
+                continue
 
-        all_results[instrument] = results
-        total_pnl += results.get("net_pnl", 0)
-        if results.get("trades"):
-            all_trades.extend(results["trades"])
+            key = f"{instrument}_scalp"
+            all_results[key] = results
+            total_pnl += results.get("net_pnl", 0)
+            if results.get("trades"):
+                all_trades.extend(results["trades"])
 
-        trades = results["total_trades"]
-        if trades > 0:
-            logger.info(
-                f"  {instrument}: {trades} trades | "
-                f"Win: {results.get('win_rate', 0):.1f}% | "
-                f"P&L: ${results.get('net_pnl', 0):,.2f} | "
-                f"PF: {results.get('profit_factor', 0):.2f} | "
-                f"Sharpe: {results.get('sharpe_ratio', 0):.2f}"
-            )
-        else:
-            logger.info(f"  {instrument}: 0 trades")
+            trades = results["total_trades"]
+            if trades > 0:
+                logger.info(
+                    f"  {instrument} (scalp): {trades} trades | "
+                    f"Win: {results.get('win_rate', 0):.1f}% | "
+                    f"P&L: ${results.get('net_pnl', 0):,.2f} | "
+                    f"PF: {results.get('profit_factor', 0):.2f} | "
+                    f"Sharpe: {results.get('sharpe_ratio', 0):.2f}"
+                )
+            else:
+                logger.info(f"  {instrument} (scalp): 0 trades")
+
+    # SWING runs
+    if args.style in ("swing", "combined"):
+        for instrument in swing_instruments:
+            logger.info(f"\n{'─' * 40}")
+            logger.info(f"SWING: {instrument}")
+            logger.info(f"{'─' * 40}")
+
+            results = run_single(args, instrument, style_override="swing")
+            if results is None:
+                continue
+
+            key = f"{instrument}_swing" if args.style == "combined" else instrument
+            all_results[key] = results
+            total_pnl += results.get("net_pnl", 0)
+            if results.get("trades"):
+                all_trades.extend(results["trades"])
+
+            trades = results["total_trades"]
+            if trades > 0:
+                logger.info(
+                    f"  {instrument} (swing): {trades} trades | "
+                    f"Win: {results.get('win_rate', 0):.1f}% | "
+                    f"P&L: ${results.get('net_pnl', 0):,.2f} | "
+                    f"PF: {results.get('profit_factor', 0):.2f} | "
+                    f"Sharpe: {results.get('sharpe_ratio', 0):.2f}"
+                )
+            else:
+                logger.info(f"  {instrument} (swing): 0 trades")
 
     # COMBINED RESULTS
     logger.info("\n" + "=" * 60)
@@ -216,30 +266,53 @@ def main():
 
     # PROP FIRM STATUS
     from config.settings import PROP_FIRM
-    prop = None
-    if PROP_FIRM.get("enabled"):
-        for inst, r in all_results.items():
-            if "prop_firm" in r:
-                prop = r["prop_firm"]
-                break
-
-    if prop:
+    if PROP_FIRM.get("enabled") and total_trades > 0:
         logger.info("\n" + "=" * 60)
-        logger.info(f"PROP FIRM STATUS — {prop['firm']}")
+        logger.info(f"PROP FIRM STATUS — {PROP_FIRM['name']}")
         logger.info("=" * 60)
-        logger.info(f"  Account: ${prop['initial_balance']:,.2f} → ${prop['current_balance']:,.2f}")
-        logger.info(f"  Total P&L: ${prop['total_pnl']:,.2f} ({prop['return_pct']:+.2f}%)")
-        logger.info(f"  Daily loss used: {prop['daily_loss_pct']:.2f}% / {prop['daily_loss_limit']}% limit")
-        logger.info(f"  Total drawdown: {prop['total_drawdown_pct']:.2f}% / {prop['total_loss_limit']}% limit")
-        logger.info(f"  Max drawdown: {prop['max_drawdown_pct']:.2f}%")
-        logger.info(f"  Trading days: {prop['trading_days']} (min {prop['min_trading_days']})")
-        target_status = "HIT" if prop['target_hit'] else f"{prop['return_pct']:.1f}% / {prop['target_pct']}%"
+
+        final_bal = args.balance + total_pnl
+        return_pct = total_pnl / args.balance * 100
+        target = PROP_FIRM["profit_target_pct"]
+        split = PROP_FIRM["profit_split"]
+
+        eq_vals = []
+        for inst, r in all_results.items():
+            eq_vals.extend([e["equity"] for e in r.get("equity_curve", [])])
+        peak = args.balance
+        max_dd_pct = 0
+        running = args.balance
+        for t in all_trades:
+            running += t["pnl"]
+            if running > peak:
+                peak = running
+            dd = (peak - running) / peak * 100
+            if dd > max_dd_pct:
+                max_dd_pct = dd
+
+        worst_daily = 0
+        from collections import defaultdict
+        daily_pnls = defaultdict(float)
+        for t in all_trades:
+            day_key = str(t.get("entry_bar", 0) // 6)
+            daily_pnls[day_key] += t["pnl"]
+        if daily_pnls:
+            worst_daily = min(daily_pnls.values())
+            worst_daily_pct = abs(worst_daily) / args.balance * 100
+
+        logger.info(f"  Account: ${args.balance:,.2f} → ${final_bal:,.2f}")
+        logger.info(f"  Total P&L: ${total_pnl:,.2f} ({return_pct:+.2f}%)")
+        logger.info(f"  Max drawdown: {max_dd_pct:.2f}% / {PROP_FIRM['max_total_loss_pct']}% limit")
+        logger.info(f"  Worst daily loss: ${worst_daily:,.2f} ({worst_daily_pct:.2f}% / {PROP_FIRM['max_daily_loss_pct']}% limit)")
+        logger.info(f"  Trading days: {len(daily_pnls)} (min {PROP_FIRM['min_trading_days']})")
+
+        target_hit = return_pct >= target
+        target_status = "HIT" if target_hit else f"{return_pct:.1f}% / {target}%"
         logger.info(f"  Profit target: {target_status}")
-        if prop['account_terminated']:
-            logger.info(f"  *** ACCOUNT TERMINATED: {prop['termination_reason']} ***")
-        logger.info(f"  Profit split: {prop['profit_split']:.0%}")
-        if prop['total_pnl'] > 0:
-            logger.info(f"  YOUR PAYOUT: ${prop['your_payout']:,.2f}")
+        logger.info(f"  Profit split: {split:.0%}")
+        if total_pnl > 0:
+            payout = total_pnl * split
+            logger.info(f"  YOUR PAYOUT: ${payout:,.2f}")
         else:
             logger.info(f"  Status: IN DRAWDOWN — no payout yet")
 
