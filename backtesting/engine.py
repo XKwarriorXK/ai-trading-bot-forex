@@ -27,7 +27,7 @@ class BacktestEngine:
 
     def __init__(self, pipeline, risk, instrument: str = "EUR_USD",
                  mode: str = "fast", timeframe: str = "H1",
-                 style: str = "scalp"):
+                 style: str = "scalp", daily_data=None):
         self.pipeline = pipeline
         self.risk = risk
         self.instrument = instrument
@@ -48,6 +48,10 @@ class BacktestEngine:
         self.current_position = None
         self.initial_balance = risk.account_balance
         self.balance = self.initial_balance
+
+        self.daily_trend_cache = {}
+        if daily_data is not None and not daily_data.empty:
+            self._precompute_daily_trend(daily_data)
 
     def run(self, data: pd.DataFrame, lookback: int = 200) -> dict:
         if self.style == "swing":
@@ -84,6 +88,13 @@ class BacktestEngine:
                 )
 
                 if result["final_decision"] in ("BUY", "SELL"):
+                    if self.style == "swing" and self.daily_trend_cache:
+                        daily = self._get_daily_trend(data.index[i])
+                        if daily and daily != result["final_decision"]:
+                            logger.info(
+                                f"DAILY FILTER | {self.instrument} | "
+                                f"H4 {result['final_decision']} blocked — Daily trend is {daily}")
+                            continue
                     if i + 1 < len(data):
                         self._open_position(result, data.iloc[i + 1], i + 1)
 
@@ -95,6 +106,37 @@ class BacktestEngine:
             self._force_close(data.iloc[-1], len(data) - 1)
 
         return self._generate_report(data)
+
+    def _precompute_daily_trend(self, daily_data):
+        close = daily_data["close"]
+        ma50 = close.rolling(50).mean()
+        ma200 = close.rolling(200).mean()
+
+        for i in range(len(daily_data)):
+            if pd.isna(ma50.iloc[i]) or pd.isna(ma200.iloc[i]):
+                continue
+            date = daily_data.index[i].date()
+            ma50_val = float(ma50.iloc[i])
+            ma200_val = float(ma200.iloc[i])
+
+            if ma50_val > ma200_val:
+                self.daily_trend_cache[date] = "BUY"
+            else:
+                self.daily_trend_cache[date] = "SELL"
+
+        logger.info(f"Daily trend computed: {len(self.daily_trend_cache)} days cached")
+
+    def _get_daily_trend(self, timestamp):
+        bar_date = timestamp.date() if hasattr(timestamp, 'date') else None
+        if bar_date is None:
+            return None
+        latest = None
+        for d in sorted(self.daily_trend_cache.keys()):
+            if d <= bar_date:
+                latest = self.daily_trend_cache[d]
+            else:
+                break
+        return latest
 
     def _open_position(self, signal, entry_bar, bar_idx):
         entry_price = float(entry_bar["open"])

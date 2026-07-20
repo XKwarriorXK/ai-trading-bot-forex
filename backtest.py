@@ -92,9 +92,15 @@ def run_single(args, instrument):
         logger.warning(f"No data for {instrument} — skipping")
         return None
 
+    daily_data = None
+    if args.style == "swing":
+        daily_data = fetch_oanda_historical(instrument, "D", args.days + 250)
+        if not daily_data.empty:
+            logger.info(f"Daily data loaded: {len(daily_data)} bars for multi-TF alignment")
+
     pipeline, risk = build_pipeline(args)
     engine = BacktestEngine(pipeline, risk, instrument, args.mode, timeframe,
-                            style=args.style)
+                            style=args.style, daily_data=daily_data)
     results = engine.run(data)
     return results
 
